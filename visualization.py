@@ -1,8 +1,6 @@
-# visualization.py
 
 import os
 import matplotlib
-# Must come before pyplot import:
 matplotlib.use('Agg')
 
 import matplotlib.pyplot as plt
@@ -15,6 +13,14 @@ from sklearn.metrics import (
     precision_recall_curve, average_precision_score
 )
 from sklearn.decomposition import PCA
+
+def safe_pca(X, n_components):
+    n_samples, n_features = X.shape
+    actual_n = min(n_components, n_samples, n_features)
+    if actual_n < 2:
+        raise ValueError(f"Cannot run PCA: n_samples={n_samples}, n_features={n_features}, need at least 2 for visualization.")
+    return PCA(n_components=actual_n).fit_transform(X), actual_n
+
 
 def _safe_save(fig, path):
     """Helper to save a figure, print errors, assert success, then close."""
@@ -108,7 +114,8 @@ def visualize_precision_recall(y_true, y_scores, save_path=None):
         plt.show()
 
 def visualize_feature_scatter(X, y, save_path=None):
-    Xr = PCA(n_components=2).fit_transform(X)
+    # Xr = PCA(n_components=2).fit_transform(X)
+    Xr, n_components = safe_pca(X, 2)
     df = pd.DataFrame(Xr, columns=['PC1','PC2'])
     df['Label'] = y
     fig = plt.figure(figsize=(8,6))
@@ -120,8 +127,11 @@ def visualize_feature_scatter(X, y, save_path=None):
         plt.show()
 
 def visualize_feature_distribution(X, y, save_path=None):
-    Xr = PCA(n_components=5).fit_transform(X)
-    cols = [f"PC{i+1}" for i in range(5)]
+    # Xr = PCA(n_components=5).fit_transform(X)
+    # cols = [f"PC{i+1}" for i in range(5)]
+    Xr, n_components = safe_pca(X, 5)
+    cols = [f"PC{i+1}" for i in range(n_components)]
+
     df = pd.DataFrame(Xr, columns=cols)
     df['Label'] = y
     melted = df.melt(id_vars='Label', var_name='PC', value_name='Val')
@@ -134,8 +144,11 @@ def visualize_feature_distribution(X, y, save_path=None):
         plt.show()
 
 def visualize_feature_correlation(X, save_path=None):
-    Xr = PCA(n_components=10).fit_transform(X)
-    df = pd.DataFrame(Xr, columns=[f"PC{i+1}" for i in range(10)])
+    # Xr = PCA(n_components=10).fit_transform(X)
+    # df = pd.DataFrame(Xr, columns=[f"PC{i+1}" for i in range(10)])
+    Xr, n_components = safe_pca(X, 10)
+    df = pd.DataFrame(Xr, columns=[f"PC{i+1}" for i in range(n_components)])
+
     corr = df.corr()
     fig = plt.figure(figsize=(8,6))
     sns.heatmap(corr, annot=True, fmt=".2f", cmap="coolwarm", center=0, square=True)
@@ -146,8 +159,11 @@ def visualize_feature_correlation(X, save_path=None):
         plt.show()
 
 def visualize_boxplot(X, y, save_path=None):
-    Xr = PCA(n_components=5).fit_transform(X)
-    cols = [f"PC{i+1}" for i in range(5)]
+    # Xr = PCA(n_components=5).fit_transform(X)
+    # cols = [f"PC{i+1}" for i in range(5)]
+    Xr, n_components = safe_pca(X, 5)
+    cols = [f"PC{i+1}" for i in range(n_components)]
+
     df = pd.DataFrame(Xr, columns=cols)
     df['Label'] = y
     melted = df.melt(id_vars='Label', var_name='PC', value_name='Val')
@@ -160,8 +176,10 @@ def visualize_boxplot(X, y, save_path=None):
         plt.show()
 
 def visualize_violinplot(X, y, save_path=None):
-    Xr = PCA(n_components=5).fit_transform(X)
-    cols = [f"PC{i+1}" for i in range(5)]
+    # Xr = PCA(n_components=5).fit_transform(X)
+    # cols = [f"PC{i+1}" for i in range(5)]
+    Xr, n_components = safe_pca(X, 5)
+    cols = [f"PC{i+1}" for i in range(n_components)]
     df = pd.DataFrame(Xr, columns=cols)
     df['Label'] = y
     melted = df.melt(id_vars='Label', var_name='PC', value_name='Val')
