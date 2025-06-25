@@ -1,0 +1,14 @@
+torch
+wandb
+scikit-learn
+matplotlib
+numpy
+pandas
+Bio
+seaborn
+xgboost
+catboost
+openpyxl
+imbalanced-learn
+fair-esm
+cuml-cu12 --extra-index-url=https://pypi.nvidia.com
