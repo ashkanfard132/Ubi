@@ -431,6 +431,9 @@ def train_model(args,
             loss.backward()
             optimizer.step()
 
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect() 
+
             all_outputs.append(outputs.detach().cpu())
             all_targets.append(batch_labels.detach().cpu())
 
