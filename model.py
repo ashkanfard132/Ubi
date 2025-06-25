@@ -289,7 +289,7 @@ def get_ml_model(name, y=None, random_state=42):
         return LogisticRegression(
             class_weight='balanced',
             solver='saga',
-            max_iter=2000,
+            max_iter=500,
             random_state=random_state
         )
 
