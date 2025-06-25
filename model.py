@@ -110,6 +110,7 @@ def get_pretrained_model(model_name, device='cpu', freeze=True):
     if model_name == 'prot_bert':
         
         tokenizer = BertTokenizer.from_pretrained("Rostlab/prot_bert", do_lower_case=False)
+        # tokenizer = BertTokenizer.from_pretrained("Rostlab/prot_bert", do_lower_case=False, model_max_length=512)
         model = BertModel.from_pretrained("Rostlab/prot_bert")
         if freeze:
             for param in model.parameters():
