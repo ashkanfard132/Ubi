@@ -188,7 +188,7 @@ metrics_df = pd.DataFrame({
 metrics_df.index.name = 'Metric'
 
 # Excel file path includes data name, model, and timestamp
-excel_path = f"results/{data_name}_{args.model}_{timestamp}_metrics.xlsx"
+excel_path = f"results/{data_name}_{args.model}_{args.features}_{args.window_size}_{timestamp}_metrics.xlsx"
 
 with pd.ExcelWriter(excel_path) as writer:
     # sheet 1: the metrics table
