@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
 from data_preprocessing import (
     encode_sequence_windows,
     oversample,
@@ -119,7 +120,7 @@ def train_and_evaluate(
           }
 
     else:
-        from sklearn.model_selection import train_test_split
+        
         Xf_trainval, Xf_test, Xs_trainval, Xs_test, y_trainval, y_test = train_test_split(
             Xf, Xs, y, test_size=0.2, stratify=y, random_state=42
         )
