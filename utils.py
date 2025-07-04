@@ -2,6 +2,29 @@ import torch.nn as nn
 import torch
 import torch.optim as optim
 import numpy as np
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, matthews_corrcoef, confusion_matrix
+
+def compute_metrics(y_true, y_pred, y_prob):
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+    if cm.shape == (2, 2):
+        tn, fp, fn, tp = cm.ravel()
+        specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+    else:
+        specificity = float('nan')
+    try:
+        roc_auc = roc_auc_score(y_true, y_prob)
+    except ValueError:
+        roc_auc = float('nan')
+    return {
+        "accuracy": accuracy_score(y_true, y_pred),
+        "precision": precision_score(y_true, y_pred, zero_division=0),
+        "recall": recall_score(y_true, y_pred, zero_division=0),
+        "f1_score": f1_score(y_true, y_pred, zero_division=0),
+        "roc_auc": roc_auc,
+        "Sp": specificity,
+        "MCC": matthews_corrcoef(y_true, y_pred)
+    }
+
 
 def get_loss(loss_type='bce', pos_weight=None):
     if loss_type == 'bce':
