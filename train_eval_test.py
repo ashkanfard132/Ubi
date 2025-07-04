@@ -3,7 +3,6 @@ import torch.nn as nn
 import numpy as np
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, matthews_corrcoef, confusion_matrix
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
 from data_preprocessing import (
     encode_sequence_windows,
     oversample,
@@ -12,7 +11,7 @@ from data_preprocessing import (
     smotee_sample,
     kfold_split
 )
-from utils import get_loss, get_optimizer, get_scheduler, make_balanced_test
+from utils import get_loss, get_optimizer, get_scheduler, make_balanced_test, compute_metrics
 from tqdm import tqdm
 
 def train_and_evaluate(
@@ -120,7 +119,7 @@ def train_and_evaluate(
           }
 
     else:
-        
+        from sklearn.model_selection import train_test_split
         Xf_trainval, Xf_test, Xs_trainval, Xs_test, y_trainval, y_test = train_test_split(
             Xf, Xs, y, test_size=0.2, stratify=y, random_state=42
         )
@@ -153,8 +152,8 @@ def train_and_evaluate(
             y_test_bal=out["y_test_bal"],
             y_pred_bal=out["y_pred_bal"],
             y_prob_bal=out["y_prob_bal"],
-            Xf_test=Xf_test,                
-            Xf_test_bal=Xf_test_bal,        
+            Xf_test=Xf_test,               
+            Xf_test_bal=Xf_test_bal,       
             # optionally, for sequences:
             Xs_test=Xs_test,
             Xs_test_bal=Xs_test_bal,
@@ -299,7 +298,7 @@ def _one_fold_train_eval(
             val_data=val_data, val_labels=y_val,
             val_data_bal=val_data_bal, val_labels_bal=val_labels_bal,
             tokenizer_or_batch_converter=tokenizer_or_batch_converter,   
-            model_name=model_name                                         
+            model_name=model_name                                        
         )
 
         metrics_nat, y_pred_nat, y_prob_nat = evaluate_model(
@@ -321,22 +320,12 @@ def _one_fold_train_eval(
         model.fit(train_data, y_train)
         y_pred_nat = model.predict(test_data_natural)
         y_prob_nat = model.predict_proba(test_data_natural)[:, 1] if hasattr(model, "predict_proba") else y_pred_nat
-        metrics_nat = {
-            "accuracy": accuracy_score(y_test, y_pred_nat),
-            "precision": precision_score(y_test, y_pred_nat),
-            "recall": recall_score(y_test, y_pred_nat),
-            "f1_score": f1_score(y_test, y_pred_nat),
-            "roc_auc": roc_auc_score(y_test, y_prob_nat)
-        }
+        metrics_nat = compute_metrics(y_test, y_pred_nat, y_prob_nat)
+
         y_pred_bal = model.predict(test_data_balanced)
         y_prob_bal = model.predict_proba(test_data_balanced)[:, 1] if hasattr(model, "predict_proba") else y_pred_bal
-        metrics_bal = {
-            "accuracy": accuracy_score(y_test_bal, y_pred_bal),
-            "precision": precision_score(y_test_bal, y_pred_bal),
-            "recall": recall_score(y_test_bal, y_pred_bal),
-            "f1_score": f1_score(y_test_bal, y_pred_bal),
-            "roc_auc": roc_auc_score(y_test_bal, y_prob_bal)
-        }
+        metrics_bal = compute_metrics(y_test_bal, y_pred_bal, y_prob_bal)
+        
         metrics_val_bal = None
     return {
         "metrics_nat": metrics_nat,
@@ -366,7 +355,7 @@ def train_model(args,
     val_labels=None,
     val_data_bal=None,
     val_labels_bal=None,
-    tokenizer_or_batch_converter=None,   
+    tokenizer_or_batch_converter=None,  
     model_name=None                    
 ):
     model.to(device)
@@ -615,25 +604,9 @@ def evaluate_model(
         # === Post-processing ===
         probs = 1 / (1 + np.exp(-outputs))
         preds = (probs >= threshold).astype(int)
-    
-    cm = confusion_matrix(test_labels, preds, labels=[0, 1])
-    if cm.shape == (2, 2):
-        tn, fp, fn, tp = cm.ravel()
-        specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
-    else:
-        specificity = float('nan')  
+        
+    metrics = compute_metrics(test_labels, preds, probs)
 
-    metrics = {
-        "accuracy": accuracy_score(test_labels, preds),
-        "precision": precision_score(test_labels, preds, zero_division=0),
-        "recall": recall_score(test_labels, preds, zero_division=0),
-        "f1_score": f1_score(test_labels, preds, zero_division=0),
-        "roc_auc": roc_auc_score(test_labels, probs),
-        "Sp": specificity,  
-        "MCC": matthews_corrcoef(test_labels, preds),  
-    }
-
-    return metrics, preds, probs
 
     return metrics, preds, probs
 
@@ -643,7 +616,7 @@ def predict(
     data, 
     threshold=0.5, 
     device='cpu', 
-    tokenizer_or_batch_converter=None,   
+    tokenizer_or_batch_converter=None,    
     model_name=None                      
 ):
     """
