@@ -153,8 +153,8 @@ def train_and_evaluate(
             y_test_bal=out["y_test_bal"],
             y_pred_bal=out["y_pred_bal"],
             y_prob_bal=out["y_prob_bal"],
-            Xf_test=Xf_test,                # <-- ADD THIS!
-            Xf_test_bal=Xf_test_bal,        # <-- ADD THIS!
+            Xf_test=Xf_test,                
+            Xf_test_bal=Xf_test_bal,        
             # optionally, for sequences:
             Xs_test=Xs_test,
             Xs_test_bal=Xs_test_bal,
@@ -298,8 +298,8 @@ def _one_fold_train_eval(
             device=device, loss_fn=loss_fn, optimizer=optimizer, scheduler=scheduler,
             val_data=val_data, val_labels=y_val,
             val_data_bal=val_data_bal, val_labels_bal=val_labels_bal,
-            tokenizer_or_batch_converter=tokenizer_or_batch_converter,    # <-- ADDED
-            model_name=model_name                                         # <-- ADDED
+            tokenizer_or_batch_converter=tokenizer_or_batch_converter,   
+            model_name=model_name                                         
         )
 
         metrics_nat, y_pred_nat, y_prob_nat = evaluate_model(
@@ -366,8 +366,8 @@ def train_model(args,
     val_labels=None,
     val_data_bal=None,
     val_labels_bal=None,
-    tokenizer_or_batch_converter=None,   # <-- ADDED
-    model_name=None                     # <-- ADDED
+    tokenizer_or_batch_converter=None,   
+    model_name=None                    
 ):
     model.to(device)
     if loss_fn is None:
@@ -575,8 +575,8 @@ def evaluate_model(
     test_labels, 
     threshold=0.5, 
     device='cpu',
-    tokenizer_or_batch_converter=None,   # <-- ADDED
-    model_name=None                     # <-- ADDED
+    tokenizer_or_batch_converter=None,   
+    model_name=None                     
 ):
     """
     Evaluates a model. Supports MLP, CNN, LSTM, transformer, prot_bert (HuggingFace), esm2_t6_8m (ESM2).
@@ -632,8 +632,8 @@ def predict(
     data, 
     threshold=0.5, 
     device='cpu', 
-    tokenizer_or_batch_converter=None,    # <-- ADDED
-    model_name=None                      # <-- ADDED
+    tokenizer_or_batch_converter=None,   
+    model_name=None                      
 ):
     """
     Supports: MLP, CNN, LSTM, transformer, prot_bert, esm2_t6_8m.
