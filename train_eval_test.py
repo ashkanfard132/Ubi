@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, matthews_corrcoef, confusion_matrix
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from data_preprocessing import (
@@ -616,13 +616,24 @@ def evaluate_model(
         probs = 1 / (1 + np.exp(-outputs))
         preds = (probs >= threshold).astype(int)
     
+    cm = confusion_matrix(test_labels, preds, labels=[0, 1])
+    if cm.shape == (2, 2):
+        tn, fp, fn, tp = cm.ravel()
+        specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+    else:
+        specificity = float('nan')  
+
     metrics = {
         "accuracy": accuracy_score(test_labels, preds),
         "precision": precision_score(test_labels, preds, zero_division=0),
         "recall": recall_score(test_labels, preds, zero_division=0),
         "f1_score": f1_score(test_labels, preds, zero_division=0),
-        "roc_auc": roc_auc_score(test_labels, probs)
+        "roc_auc": roc_auc_score(test_labels, probs),
+        "Sp": specificity,  
+        "MCC": matthews_corrcoef(test_labels, preds),  
     }
+
+    return metrics, preds, probs
 
     return metrics, preds, probs
 
