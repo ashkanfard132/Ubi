@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch
 import torch.optim as optim
 import numpy as np
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, matthews_corrcoef, confusion_matrix
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, matthews_corrcoef, confusion_matrix, fbeta_score
 
 def compute_metrics(y_true, y_pred, y_prob):
     cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
@@ -84,4 +84,20 @@ def make_balanced_test(Xf_test, Xs_test, y_test, random_state=42):
     idx_balanced = np.concatenate([idx_pos_sample, idx_neg_sample])
     np.random.shuffle(idx_balanced)
     return Xf_test[idx_balanced], Xs_test[idx_balanced], y_test[idx_balanced]
-      
+
+
+def find_best_threshold(y_true, y_probs, metric='f1'):
+    best_thresh = 0.5
+    best_score = -np.inf
+    thresholds = np.linspace(0.01, 0.99, 100)
+    for t in thresholds:
+        y_pred = (y_probs >= t).astype(int)
+        if metric == 'f2':
+            score = fbeta_score(y_true, y_pred, beta=2, zero_division=0)
+        else:
+            score = f1_score(y_true, y_pred, zero_division=0)
+        if score > best_score:
+            best_score = score
+            best_thresh = t
+    return best_thresh, best_score
+
