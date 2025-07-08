@@ -2,10 +2,13 @@ import torch
 import torch.nn as nn
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
+from args import get_args
+
 try:
     from cuml.svm import SVC as CuMLSVC
     HAS_CUMLSVM = True
-except ImportError:
+except Exception as e:
+    print(f"[INFO] cuML not available or incompatible GPU, falling back to scikit-learn SVC.\nReason: {e}")
     from sklearn.svm import SVC as SklearnSVC
     HAS_CUMLSVM = False
 
@@ -109,8 +112,7 @@ def get_pretrained_model(model_name, device='cpu', freeze=True):
     """
     if model_name == 'prot_bert':
         
-        tokenizer = BertTokenizer.from_pretrained("Rostlab/prot_bert", do_lower_case=False)
-        # tokenizer = BertTokenizer.from_pretrained("Rostlab/prot_bert", do_lower_case=False, model_max_length=512)
+        tokenizer = BertTokenizer.from_pretrained("Rostlab/prot_bert", do_lower_case=False, model_max_length=512)
         model = BertModel.from_pretrained("Rostlab/prot_bert")
         if freeze:
             for param in model.parameters():
@@ -209,14 +211,26 @@ def get_ml_model(name, y=None, random_state=42):
 
     elif name == 'svm':
         if HAS_CUMLSVM:
-            # Use cuML SVM, but no class_weight
-            return CuMLSVC(
-                kernel='rbf',
-                C=5.0,
-                probability=True,
-                gamma='scale',
-                verbose=False
-            )
+            # If you want to use predict_proba, do NOT use class_weight for binary (prevents error)
+            use_probability = True  # <-- set to False if you don't need probabilities!
+            if use_probability:
+                return CuMLSVC(
+                    kernel='rbf',
+                    C=5.0,
+                    probability=True,
+                    gamma='scale',
+                    verbose=False
+                    # DO NOT set class_weight!
+                )
+            else:
+                return CuMLSVC(
+                    kernel='rbf',
+                    class_weight='balanced',
+                    C=5.0,
+                    probability=False,
+                    gamma='scale',
+                    verbose=False
+                )
         else:
             # scikit-learn SVC (class_weight='balanced' is OK)
             return SklearnSVC(
@@ -227,6 +241,7 @@ def get_ml_model(name, y=None, random_state=42):
                 gamma='scale',
                 random_state=random_state
             )
+
 
     elif name == 'xgb':
         # XGBoost: weight positives by neg/pos ratio
@@ -262,10 +277,10 @@ def get_ml_model(name, y=None, random_state=42):
             class_weights = [1.0, 1.0]
 
         return CatBoostClassifier(
-            iterations=800,
-            depth=6,
+            iterations=1500,
+            depth=7,
             learning_rate=0.01,
-            class_weights=class_weights,
+            auto_class_weights='Balanced', 
             l2_leaf_reg=5,
             subsample=0.8,
             random_state=random_state,
