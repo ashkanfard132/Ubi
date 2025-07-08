@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, matthews_corrcoef, confusion_matrix
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
 from data_preprocessing import (
     encode_sequence_windows,
     oversample,
@@ -11,7 +12,7 @@ from data_preprocessing import (
     smotee_sample,
     kfold_split
 )
-from utils import get_loss, get_optimizer, get_scheduler, make_balanced_test, compute_metrics
+from utils import get_loss, get_optimizer, get_scheduler, make_balanced_test, compute_metrics, find_best_threshold
 from tqdm import tqdm
 
 def train_and_evaluate(
@@ -42,6 +43,7 @@ def train_and_evaluate(
         fold_metrics_nat = []
         fold_metrics_bal = []
         fold_metrics_val_bal = []
+        fold_best_thresholds = []
         last_out = None
         for split in splits:
             fold_num = split.get("fold", len(fold_metrics_nat)+1)
@@ -73,6 +75,10 @@ def train_and_evaluate(
             # Only append val_bal for DL
             if out.get("metrics_val_bal", None) is not None:
                 fold_metrics_val_bal.append(out["metrics_val_bal"])
+
+            if "best_thresh" in out:   # <-- NEW
+                fold_best_thresholds.append(out["best_thresh"])
+
             print(f"Fold {fold_num} NATURAL metrics:")
             for k, v in out["metrics_nat"].items():
                 print(f"  {k}: {v:.4f}")
@@ -92,6 +98,8 @@ def train_and_evaluate(
         else:
             metrics_val_bal = None
 
+        final_best_thresh = float(np.mean(fold_best_thresholds)) if fold_best_thresholds else 0.5
+
         print("\n========== Final Mean Metrics (NATURAL TEST) ==========")
         for k, v in metrics_nat.items():
             print(f"{k}: {v:.4f}")
@@ -107,6 +115,7 @@ def train_and_evaluate(
               "metrics_nat":     metrics_nat,
               "metrics_bal":     metrics_bal,
               "metrics_val_bal": metrics_val_bal,
+              "final_best_thresh": final_best_thresh,
               "y_test":          last_out["y_test"],
               "y_pred_nat":      last_out["y_pred_nat"],
               "y_prob_nat":      last_out["y_prob_nat"],
@@ -119,7 +128,7 @@ def train_and_evaluate(
           }
 
     else:
-        from sklearn.model_selection import train_test_split
+        
         Xf_trainval, Xf_test, Xs_trainval, Xs_test, y_trainval, y_test = train_test_split(
             Xf, Xs, y, test_size=0.2, stratify=y, random_state=42
         )
@@ -146,14 +155,15 @@ def train_and_evaluate(
             metrics_nat=out["metrics_nat"],
             metrics_bal=out["metrics_bal"],
             metrics_val_bal=out.get("metrics_val_bal", None),
+            final_best_thresh=out.get("best_thresh", 0.5),
             y_test=out["y_test"],
             y_pred_nat=out["y_pred_nat"],
             y_prob_nat=out["y_prob_nat"],
             y_test_bal=out["y_test_bal"],
             y_pred_bal=out["y_pred_bal"],
             y_prob_bal=out["y_prob_bal"],
-            Xf_test=Xf_test,               
-            Xf_test_bal=Xf_test_bal,       
+            Xf_test=Xf_test,                
+            Xf_test_bal=Xf_test_bal,        
             # optionally, for sequences:
             Xs_test=Xs_test,
             Xs_test_bal=Xs_test_bal,
@@ -297,8 +307,8 @@ def _one_fold_train_eval(
             device=device, loss_fn=loss_fn, optimizer=optimizer, scheduler=scheduler,
             val_data=val_data, val_labels=y_val,
             val_data_bal=val_data_bal, val_labels_bal=val_labels_bal,
-            tokenizer_or_batch_converter=tokenizer_or_batch_converter,   
-            model_name=model_name                                        
+            tokenizer_or_batch_converter=tokenizer_or_batch_converter,    
+            model_name=model_name                                         
         )
 
         metrics_nat, y_pred_nat, y_prob_nat = evaluate_model(
@@ -318,15 +328,32 @@ def _one_fold_train_eval(
         )
     else:
         model.fit(train_data, y_train)
-        y_pred_nat = model.predict(test_data_natural)
-        y_prob_nat = model.predict_proba(test_data_natural)[:, 1] if hasattr(model, "predict_proba") else y_pred_nat
-        metrics_nat = compute_metrics(y_test, y_pred_nat, y_prob_nat)
 
-        y_pred_bal = model.predict(test_data_balanced)
-        y_prob_bal = model.predict_proba(test_data_balanced)[:, 1] if hasattr(model, "predict_proba") else y_pred_bal
+        # --- Compute best threshold on validation set (F2) if requested ---
+        if getattr(args, "best_threshold", False) and hasattr(model, "predict_proba"):
+            y_val_probs = model.predict_proba(val_data)[:, 1]
+            best_thresh, best_f2 = find_best_threshold(y_val, y_val_probs, metric='f2')
+            print(f"[INFO] Best threshold on val set (F2): {best_thresh:.3f} (F2={best_f2:.4f})")
+        else:
+            best_thresh = 0.5  # Default threshold
+
+        # --- Test predictions using best threshold ---
+        if hasattr(model, "predict_proba"):
+            y_prob_nat = model.predict_proba(test_data_natural)[:, 1]
+            y_prob_bal = model.predict_proba(test_data_balanced)[:, 1]
+        else:
+            y_prob_nat = model.predict(test_data_natural)
+            y_prob_bal = model.predict(test_data_balanced)
+
+        y_pred_nat = (y_prob_nat >= best_thresh).astype(int)
+        y_pred_bal = (y_prob_bal >= best_thresh).astype(int)
+
+        metrics_nat = compute_metrics(y_test, y_pred_nat, y_prob_nat)
         metrics_bal = compute_metrics(y_test_bal, y_pred_bal, y_prob_bal)
-        
+
         metrics_val_bal = None
+
+
     return {
         "metrics_nat": metrics_nat,
         "metrics_bal": metrics_bal,
@@ -337,6 +364,7 @@ def _one_fold_train_eval(
         "y_test_bal": y_test_bal,
         "y_pred_bal": y_pred_bal,
         "y_prob_bal": y_prob_bal,
+        "best_thresh": best_thresh,
     }
 
 
@@ -355,8 +383,8 @@ def train_model(args,
     val_labels=None,
     val_data_bal=None,
     val_labels_bal=None,
-    tokenizer_or_batch_converter=None,  
-    model_name=None                    
+    tokenizer_or_batch_converter=None,   
+    model_name=None                     
 ):
     model.to(device)
     if loss_fn is None:
@@ -617,7 +645,7 @@ def predict(
     threshold=0.5, 
     device='cpu', 
     tokenizer_or_batch_converter=None,    
-    model_name=None                      
+    model_name=None                     
 ):
     """
     Supports: MLP, CNN, LSTM, transformer, prot_bert, esm2_t6_8m.
