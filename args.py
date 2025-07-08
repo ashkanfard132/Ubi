@@ -57,5 +57,7 @@ def get_args():
     parser.add_argument('--dropout', type=float, default=0.5,
         help='Dropout probability (0 disables dropout, typical: 0.3-0.5 for MLP/CNN, 0.2-0.3 for LSTM, 0.1-0.3 for Transformer)'
     )
+    parser.add_argument('--best_threshold', action='store_true',
+    help='Find best threshold from validation set and use for test (ML models only)')
 
     return parser.parse_args()
