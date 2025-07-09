@@ -70,6 +70,8 @@ def get_scheduler(optimizer, sched_type='step', step_size=10, gamma=0.1):
         return optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=gamma, patience=3)
     elif sched_type == 'cosine':
         return optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=T_max)
+    elif sched_type == 'none':
+        return None 
     else:
         raise ValueError(f"Unsupported scheduler type: {sched_type}")
 
