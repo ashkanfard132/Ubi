@@ -279,7 +279,7 @@ def _one_fold_train_eval(
         tokenizer_or_batch_converter = None
     elif model_name in ['prot_bert', 'esm2_t6_8m']:
         model, tokenizer_or_batch_converter = get_torch_model(
-            model_name, device=args.device, freeze=True, dropout=args.dropout
+            model_name, device=args.device, freeze=args.freeze_pretrained, dropout=args.dropout
         )
         use_torch = True
     else:
