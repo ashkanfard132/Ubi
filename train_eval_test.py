@@ -299,6 +299,8 @@ def _one_fold_train_eval(
         optimizer = get_optimizer(model, args.optim, args.lr)
         if args.sched == "cosine":
             scheduler = get_scheduler(optimizer, args.sched, t_max=args.t_max)
+        elif args.sched == "none":
+            scheduler = None
         else:
             scheduler = get_scheduler(optimizer, args.sched, args.step_size, args.gamma)
 
