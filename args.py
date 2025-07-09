@@ -30,7 +30,7 @@ def get_args():
     parser.add_argument('--optim', type=str, default='adam',
                         choices=['adam', 'sgd', 'rmsprop', 'adamw', 'amsgrad'])
     parser.add_argument('--sched', type=str, default='step',
-                        choices=['step', 'exp', 'plateau', 'cosine'])
+                        choices=['step', 'exp', 'plateau', 'cosine', 'none'])
     parser.add_argument('--step_size', type=int, default=10)
     parser.add_argument('--t_max', type=int, default=10,
                         help='T_max for cosine annealing scheduler')
