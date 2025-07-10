@@ -217,9 +217,9 @@ def get_ml_model(name, y=None, random_state=42):
                     kernel='rbf',
                     C=5.0,
                     probability=True,
-                    gamma= 0.0005,
+                    gamma= 0.0001,
                     verbose=False
-                    # DO NOT set class_weight!
+                    
                 )
             else:
                 return CuMLSVC(
@@ -227,7 +227,7 @@ def get_ml_model(name, y=None, random_state=42):
                     class_weight='balanced',
                     C=5.0,
                     probability=False,
-                    gamma='scale',
+                    gamma= 0.0001,
                     verbose=False
                 )
         else:
@@ -236,7 +236,7 @@ def get_ml_model(name, y=None, random_state=42):
                 class_weight='balanced',
                 kernel='rbf',
                 C=5.0,
-                gamma='scale',
+                gamma= 0.0001,
                 random_state=random_state
             )
 
