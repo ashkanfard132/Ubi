@@ -211,14 +211,13 @@ def get_ml_model(name, y=None, random_state=42):
 
     elif name == 'svm':
         if HAS_CUMLSVM:
-            # If you want to use predict_proba, do NOT use class_weight for binary (prevents error)
-            use_probability = True  # <-- set to False if you don't need probabilities!
+            use_probability = True 
             if use_probability:
                 return CuMLSVC(
                     kernel='rbf',
                     C=5.0,
                     probability=True,
-                    gamma='scale',
+                    gamma= 0.0005,
                     verbose=False
                     # DO NOT set class_weight!
                 )
@@ -232,7 +231,6 @@ def get_ml_model(name, y=None, random_state=42):
                     verbose=False
                 )
         else:
-            # scikit-learn SVC (class_weight='balanced' is OK)
             return SklearnSVC(
                 probability=True,
                 class_weight='balanced',
@@ -244,7 +242,7 @@ def get_ml_model(name, y=None, random_state=42):
 
 
     elif name == 'xgb':
-        # XGBoost: weight positives by neg/pos ratio
+       
         if n_pos > 0:
             scale_pos_weight = float(n_neg) / float(n_pos)
         else:
@@ -269,7 +267,7 @@ def get_ml_model(name, y=None, random_state=42):
         )
 
     elif name in ('cat', 'catboost'):
-        # CatBoost: supply per-class weights
+       
         if n_pos > 0:
             total = n_pos + n_neg
             class_weights = [n_neg/total, n_pos/total]
