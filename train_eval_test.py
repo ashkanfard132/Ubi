@@ -14,6 +14,8 @@ from data_preprocessing import (
 )
 from utils import get_loss, get_optimizer, get_scheduler, make_balanced_test, compute_metrics, find_best_threshold
 from tqdm import tqdm
+import gc
+
 
 def train_and_evaluate(
     args,
@@ -185,6 +187,7 @@ def _one_fold_train_eval(
     train_model, evaluate_model,
     SEQ_MODELS, FEAT_MODELS
 ):
+    # best_thresh = 0.5
     model_name = args.model.lower()
     # --- Sampling ---
     sampling_steps = args.sampling
@@ -313,20 +316,36 @@ def _one_fold_train_eval(
             model_name=model_name                                         
         )
 
+        if getattr(args, "best_threshold", False):
+            # Use your evaluate_model function to get validation probabilities (natural val set)
+            _, _, y_val_probs = evaluate_model(
+                model, val_data, y_val, device=device,
+                tokenizer_or_batch_converter=tokenizer_or_batch_converter,
+                model_name=model_name
+            )
+            best_thresh, best_f2 = find_best_threshold(y_val, y_val_probs, metric='f2')
+            print(f"[INFO] Best threshold on val set (F2): {best_thresh:.3f} (F2={best_f2:.4f})")
+        else:
+            best_thresh = 0.5
+
+        # Use best_thresh in subsequent evaluations:
         metrics_nat, y_pred_nat, y_prob_nat = evaluate_model(
             model, test_data_natural, y_test, device=device, 
             tokenizer_or_batch_converter=tokenizer_or_batch_converter, 
-            model_name=model_name
+            model_name=model_name,
+            threshold=best_thresh  # <--- Use threshold here!
         )
         metrics_bal, y_pred_bal, y_prob_bal = evaluate_model(
             model, test_data_balanced, y_test_bal, device=device, 
             tokenizer_or_batch_converter=tokenizer_or_batch_converter, 
-            model_name=model_name
+            model_name=model_name,
+            threshold=best_thresh  # <--- Use threshold here!
         )
         metrics_val_bal, y_pred_val_bal, y_prob_val_bal = evaluate_model(
             model, val_data_bal, y_val_bal, device=device, 
             tokenizer_or_batch_converter=tokenizer_or_batch_converter, 
-            model_name=model_name
+            model_name=model_name,
+            threshold=best_thresh  # <--- Use threshold here!
         )
     else:
         model.fit(train_data, y_train)
@@ -337,7 +356,7 @@ def _one_fold_train_eval(
             best_thresh, best_f2 = find_best_threshold(y_val, y_val_probs, metric='f2')
             print(f"[INFO] Best threshold on val set (F2): {best_thresh:.3f} (F2={best_f2:.4f})")
         else:
-            best_thresh = 0.5  # Default threshold
+            best_thresh = 0.5 
 
         # --- Test predictions using best threshold ---
         if hasattr(model, "predict_proba"):
@@ -460,7 +479,8 @@ def train_model(args,
 
         all_outputs = torch.cat(all_outputs, dim=0).numpy()
         all_targets = torch.cat(all_targets, dim=0).numpy()
-        probs = 1 / (1 + np.exp(-all_outputs))
+        # probs = 1 / (1 + np.exp(-all_outputs))
+        probs = torch.sigmoid(torch.from_numpy(all_outputs)).numpy()
         preds = (probs >= 0.5).astype(int)
 
         accuracy = accuracy_score(all_targets, preds)
@@ -595,50 +615,71 @@ def evaluate_model(
     threshold=0.5, 
     device='cpu',
     tokenizer_or_batch_converter=None,   
-    model_name=None                     
+    model_name=None,
+    batch_size=16,    # <--- Safe default batch size (configurable)
 ):
     """
-    Evaluates a model. Supports MLP, CNN, LSTM, transformer, prot_bert (HuggingFace), esm2_t6_8m (ESM2).
-
+    Evaluates a model in batches to avoid OOM. Supports MLP, CNN, LSTM, transformer, prot_bert, esm2_t6_8m.
     """
+
+
     model.eval()
+    torch.cuda.empty_cache()
+    gc.collect()
+    all_outputs = []
+
     with torch.no_grad():
-        # === HuggingFace ProtBERT ===
         if model_name == "prot_bert":
             tokenizer = tokenizer_or_batch_converter
-            batch = tokenizer(
-                list(test_data), 
-                return_tensors='pt', 
-                padding=True, 
-                truncation=True
-            )
-            input_ids = batch['input_ids'].to(device)
-            attention_mask = batch['attention_mask'].to(device)
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask).cpu().numpy()
-        
-        # === ESM2 (Fair-esm) ===
+            for i in range(0, len(test_data), batch_size):
+                batch_seqs = list(test_data[i:i+batch_size])
+                batch = tokenizer(
+                    batch_seqs,
+                    return_tensors='pt',
+                    padding=True,
+                    truncation=True,
+                )
+                input_ids = batch['input_ids'].to(device)
+                attention_mask = batch['attention_mask'].to(device)
+                outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+                # If model returns a tuple (logits, ...), take logits
+                if isinstance(outputs, tuple):
+                    outputs = outputs[0]
+                all_outputs.append(outputs.cpu().numpy())
+                del outputs, input_ids, attention_mask, batch
+                torch.cuda.empty_cache()
         elif model_name == "esm2_t6_8m":
             batch_converter = tokenizer_or_batch_converter
-            # test_data should be list of strings (already AA seq)
-            data = [("protein", seq) for seq in test_data]
-            batch_labels, batch_strs, batch_tokens = batch_converter(data)
-            batch_tokens = batch_tokens.to(device)
-            outputs = model(tokens=batch_tokens).cpu().numpy()
-        
-        # === Standard torch models ===
+            for i in range(0, len(test_data), batch_size):
+                batch_seqs = [("protein", str(seq)) for seq in test_data[i:i+batch_size]]
+                _, _, batch_tokens = batch_converter(batch_seqs)
+                batch_tokens = batch_tokens.to(device)
+                outputs = model(tokens=batch_tokens)
+                # If model returns a tuple (logits, ...), take logits
+                if isinstance(outputs, tuple):
+                    outputs = outputs[0]
+                all_outputs.append(outputs.cpu().numpy())
+                del outputs, batch_tokens
+                torch.cuda.empty_cache()
         else:
+            # Standard torch models
             x_dtype = torch.long if model.__class__.__name__ != 'MLPClassifier' else torch.float32
-            x_test = torch.tensor(test_data, dtype=x_dtype).to(device)
-            outputs = model(x_test).cpu().numpy()
-        
-        # === Post-processing ===
-        probs = 1 / (1 + np.exp(-outputs))
-        preds = (probs >= threshold).astype(int)
-        
+            for i in range(0, len(test_data), batch_size):
+                x_batch = torch.tensor(test_data[i:i+batch_size], dtype=x_dtype).to(device)
+                outputs = model(x_batch)
+                if isinstance(outputs, tuple):
+                    outputs = outputs[0]
+                all_outputs.append(outputs.cpu().numpy())
+                del outputs, x_batch
+                torch.cuda.empty_cache()
+
+    outputs = np.concatenate(all_outputs, axis=0)
+    # probs = 1 / (1 + np.exp(-outputs))
+    probs = torch.sigmoid(torch.from_numpy(outputs)).numpy()
+    preds = (probs >= threshold).astype(int)
     metrics = compute_metrics(test_labels, preds, probs)
-
-
     return metrics, preds, probs
+
 
 
 def predict(
@@ -647,42 +688,62 @@ def predict(
     threshold=0.5, 
     device='cpu', 
     tokenizer_or_batch_converter=None,    
-    model_name=None                     
+    model_name=None,
+    batch_size=16              # <--- NEW: safe default
 ):
     """
-    Supports: MLP, CNN, LSTM, transformer, prot_bert, esm2_t6_8m.
+    Predict in memory-safe batches. Supports: MLP, CNN, LSTM, transformer, prot_bert, esm2_t6_8m.
     """
+    import torch, gc, numpy as np
+
     model.eval()
+    torch.cuda.empty_cache()
+    gc.collect()
+    all_outputs = []
+
     with torch.no_grad():
-        # === ProtBERT (HuggingFace) ===
         if model_name == "prot_bert":
             tokenizer = tokenizer_or_batch_converter
-            batch = tokenizer(
-                list(data), 
-                return_tensors='pt', 
-                padding=True, 
-                truncation=True
-            )
-            input_ids = batch['input_ids'].to(device)
-            attention_mask = batch['attention_mask'].to(device)
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask).cpu().numpy()
-        
-        # === ESM2 ===
+            for i in range(0, len(data), batch_size):
+                batch_seqs = list(data[i:i+batch_size])
+                batch = tokenizer(
+                    batch_seqs, return_tensors='pt', padding=True, truncation=True
+                )
+                input_ids = batch['input_ids'].to(device)
+                attention_mask = batch['attention_mask'].to(device)
+                outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+                if isinstance(outputs, tuple):
+                    outputs = outputs[0]
+                all_outputs.append(outputs.cpu().numpy())
+                del outputs, input_ids, attention_mask, batch
+                torch.cuda.empty_cache()
         elif model_name == "esm2_t6_8m":
             batch_converter = tokenizer_or_batch_converter
-            data_list = [("protein", seq) for seq in data]
-            _, _, batch_tokens = batch_converter(data_list)
-            batch_tokens = batch_tokens.to(device)
-            outputs = model(tokens=batch_tokens).cpu().numpy()
-        
-        # === Standard torch models ===
+            for i in range(0, len(data), batch_size):
+                batch_seqs = [("protein", str(seq)) for seq in data[i:i+batch_size]]
+                _, _, batch_tokens = batch_converter(batch_seqs)
+                batch_tokens = batch_tokens.to(device)
+                outputs = model(tokens=batch_tokens)
+                if isinstance(outputs, tuple):
+                    outputs = outputs[0]
+                all_outputs.append(outputs.cpu().numpy())
+                del outputs, batch_tokens
+                torch.cuda.empty_cache()
         else:
             x_dtype = torch.long if model.__class__.__name__ != 'MLPClassifier' else torch.float32
-            x = torch.tensor(data, dtype=x_dtype).to(device)
-            outputs = model(x).cpu().numpy()
+            for i in range(0, len(data), batch_size):
+                x_batch = torch.tensor(data[i:i+batch_size], dtype=x_dtype).to(device)
+                outputs = model(x_batch)
+                if isinstance(outputs, tuple):
+                    outputs = outputs[0]
+                all_outputs.append(outputs.cpu().numpy())
+                del outputs, x_batch
+                torch.cuda.empty_cache()
 
-        # --- Post-processing ---
-        probs = 1 / (1 + np.exp(-outputs))
-        preds = (probs >= threshold).astype(int)
+    outputs = np.concatenate(all_outputs, axis=0)
+    # probs = 1 / (1 + np.exp(-outputs))
+    probs = torch.sigmoid(torch.from_numpy(outputs)).numpy()
+    preds = (probs >= threshold).astype(int)
     return preds, probs
+
 
