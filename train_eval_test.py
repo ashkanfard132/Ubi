@@ -616,7 +616,7 @@ def evaluate_model(
     device='cpu',
     tokenizer_or_batch_converter=None,   
     model_name=None,
-    batch_size=16,    # <--- Safe default batch size (configurable)
+    batch_size=16,    
 ):
     """
     Evaluates a model in batches to avoid OOM. Supports MLP, CNN, LSTM, transformer, prot_bert, esm2_t6_8m.
@@ -689,7 +689,7 @@ def predict(
     device='cpu', 
     tokenizer_or_batch_converter=None,    
     model_name=None,
-    batch_size=16              # <--- NEW: safe default
+    batch_size=16             
 ):
     """
     Predict in memory-safe batches. Supports: MLP, CNN, LSTM, transformer, prot_bert, esm2_t6_8m.
