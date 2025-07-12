@@ -333,19 +333,22 @@ def _one_fold_train_eval(
             model, test_data_natural, y_test, device=device, 
             tokenizer_or_batch_converter=tokenizer_or_batch_converter, 
             model_name=model_name,
-            threshold=best_thresh  
+            threshold=best_thresh,
+            batch_size=args.batch_size_val
         )
         metrics_bal, y_pred_bal, y_prob_bal = evaluate_model(
             model, test_data_balanced, y_test_bal, device=device, 
             tokenizer_or_batch_converter=tokenizer_or_batch_converter, 
             model_name=model_name,
-            threshold=best_thresh  
+            threshold=best_thresh,
+            batch_size=args.batch_size_val
         )
         metrics_val_bal, y_pred_val_bal, y_prob_val_bal = evaluate_model(
             model, val_data_bal, y_val_bal, device=device, 
             tokenizer_or_batch_converter=tokenizer_or_batch_converter, 
             model_name=model_name,
-            threshold=best_thresh  
+            threshold=best_thresh,
+            batch_size=args.batch_size_val
         )
     else:
         model.fit(train_data, y_train)
@@ -608,7 +611,7 @@ def train_model(args,
 
 
 
-def evaluate_model(args,
+def evaluate_model(
     model, 
     test_data, 
     test_labels, 
@@ -616,7 +619,7 @@ def evaluate_model(args,
     device='cpu',
     tokenizer_or_batch_converter=None,   
     model_name=None,
-    # batch_size=16,    
+    batch_size=16,    
 ):
     """
     Evaluates a model in batches to avoid OOM. Supports MLP, CNN, LSTM, transformer, prot_bert, esm2_t6_8m.
@@ -628,7 +631,6 @@ def evaluate_model(args,
     gc.collect()
     all_outputs = []
 
-    batch_size= args.batch_size_val
     with torch.no_grad():
         if model_name == "prot_bert":
             tokenizer = tokenizer_or_batch_converter
@@ -683,20 +685,19 @@ def evaluate_model(args,
 
 
 
-def predict(args,
+def predict(
     model, 
     data, 
     threshold=0.5, 
     device='cpu', 
     tokenizer_or_batch_converter=None,    
     model_name=None,
-    # batch_size=16             
+    batch_size=16             
 ):
     """
     Predict in memory-safe batches. Supports: MLP, CNN, LSTM, transformer, prot_bert, esm2_t6_8m.
     """
 
-    batch_size= args.batch_size_val
     model.eval()
     torch.cuda.empty_cache()
     gc.collect()
