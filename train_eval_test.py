@@ -333,19 +333,19 @@ def _one_fold_train_eval(
             model, test_data_natural, y_test, device=device, 
             tokenizer_or_batch_converter=tokenizer_or_batch_converter, 
             model_name=model_name,
-            threshold=best_thresh  # <--- Use threshold here!
+            threshold=best_thresh  
         )
         metrics_bal, y_pred_bal, y_prob_bal = evaluate_model(
             model, test_data_balanced, y_test_bal, device=device, 
             tokenizer_or_batch_converter=tokenizer_or_batch_converter, 
             model_name=model_name,
-            threshold=best_thresh  # <--- Use threshold here!
+            threshold=best_thresh  
         )
         metrics_val_bal, y_pred_val_bal, y_prob_val_bal = evaluate_model(
             model, val_data_bal, y_val_bal, device=device, 
             tokenizer_or_batch_converter=tokenizer_or_batch_converter, 
             model_name=model_name,
-            threshold=best_thresh  # <--- Use threshold here!
+            threshold=best_thresh  
         )
     else:
         model.fit(train_data, y_train)
