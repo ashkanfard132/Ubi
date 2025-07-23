@@ -41,7 +41,7 @@ def train_and_evaluate(
 
     if args.cv > 1:
         
-        splits = kfold_split(Xf, Xs, y, n_splits=args.cv)
+        splits = kfold_split(Xf, Xs, y, n_splits=args.cv, random_state=args.seed)
         fold_metrics_nat = []
         fold_metrics_bal = []
         fold_metrics_val_bal = []
@@ -132,10 +132,10 @@ def train_and_evaluate(
     else:
         
         Xf_trainval, Xf_test, Xs_trainval, Xs_test, y_trainval, y_test = train_test_split(
-            Xf, Xs, y, test_size=0.2, stratify=y, random_state=42
+            Xf, Xs, y, test_size=0.2, stratify=y, random_state=args.seed
         )
         Xf_train, Xf_val, Xs_train, Xs_val, y_train, y_val = train_test_split(
-            Xf_trainval, Xs_trainval, y_trainval, test_size=0.1, stratify=y_trainval, random_state=42
+            Xf_trainval, Xs_trainval, y_trainval, test_size=0.1, stratify=y_trainval, random_state=args.seed
         )
         Xf_val_bal, Xs_val_bal, y_val_bal = make_balanced_test(Xf_val, Xs_val, y_val)
         Xf_test_bal, Xs_test_bal, y_test_bal = make_balanced_test(Xf_test, Xs_test, y_test)
@@ -199,19 +199,19 @@ def _one_fold_train_eval(
     for method, ratio in zip(sampling_steps, sampling_ratios):
         method = method.lower()
         if method == 'over':
-            idx_sample = oversample(Xf_train, y_train, ratio=ratio, random_state=42, return_indices=True)
+            idx_sample = oversample(Xf_train, y_train, ratio=ratio, random_state=args.seed, return_indices=True)
             Xf_train = Xf_train[idx_sample]
             Xs_train = Xs_train[idx_sample]
             y_train = y_train[idx_sample]
         elif method == 'under':
-            idx_sample = undersample(Xf_train, y_train, ratio=ratio, random_state=42, return_indices=True)
+            idx_sample = undersample(Xf_train, y_train, ratio=ratio, random_state=args.seed, return_indices=True)
             Xf_train = Xf_train[idx_sample]
             Xs_train = Xs_train[idx_sample]
             y_train = y_train[idx_sample]
         elif method == 'smote':
-            Xf_train, y_train = smote_sample(Xf_train, y_train, ratio=ratio, random_state=42)
+            Xf_train, y_train = smote_sample(Xf_train, y_train, ratio=ratio, random_state=args.seed)
         elif method == 'smotee':
-            Xf_train, y_train = smotee_sample(Xf_train, y_train, ratio=ratio, random_state=42)
+            Xf_train, y_train = smotee_sample(Xf_train, y_train, ratio=ratio, random_state=args.seed)
         elif method == 'none':
             continue
         else:
@@ -286,7 +286,7 @@ def _one_fold_train_eval(
         )
         use_torch = True
     else:
-        model = get_ml_model(model_name, y=y_train)
+        model = get_ml_model(model_name, y=y_train, random_state=args.seed)
         use_torch = False
         tokenizer_or_batch_converter = None
 
@@ -341,14 +341,14 @@ def _one_fold_train_eval(
             tokenizer_or_batch_converter=tokenizer_or_batch_converter, 
             model_name=model_name,
             threshold=best_thresh,
-            batch_size=args.batch_size_val
+            batch_size=args.batch_size_val 
         )
         metrics_val_bal, y_pred_val_bal, y_prob_val_bal = evaluate_model(
             model, val_data_bal, y_val_bal, device=device, 
             tokenizer_or_batch_converter=tokenizer_or_batch_converter, 
             model_name=model_name,
             threshold=best_thresh,
-            batch_size=args.batch_size_val
+            batch_size=args.batch_size_val 
         )
     else:
         model.fit(train_data, y_train)
@@ -619,7 +619,7 @@ def evaluate_model(
     device='cpu',
     tokenizer_or_batch_converter=None,   
     model_name=None,
-    batch_size=16,    
+    batch_size=32,    
 ):
     """
     Evaluates a model in batches to avoid OOM. Supports MLP, CNN, LSTM, transformer, prot_bert, esm2_t6_8m.
@@ -692,7 +692,7 @@ def predict(
     device='cpu', 
     tokenizer_or_batch_converter=None,    
     model_name=None,
-    batch_size=16             
+    batch_size=32             
 ):
     """
     Predict in memory-safe batches. Supports: MLP, CNN, LSTM, transformer, prot_bert, esm2_t6_8m.
@@ -747,5 +747,3 @@ def predict(
     probs = torch.sigmoid(torch.from_numpy(outputs)).numpy()
     preds = (probs >= threshold).astype(int)
     return preds, probs
-
-
