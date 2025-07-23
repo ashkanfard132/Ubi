@@ -9,7 +9,7 @@ from data_preprocessing import (
     load_dataset, AMINO_ACIDS, parse_pssm_folder_by_order, encode_sequence_windows,
     oversample, undersample, smote_sample, smotee_sample
 )
-from utils import make_balanced_test, get_loss, get_optimizer, get_scheduler
+from utils import make_balanced_test, get_loss, get_optimizer, get_scheduler, set_seed
 from train_eval_test import train_and_evaluate, train_model, evaluate_model
 from model import get_torch_model, get_ml_model, PretrainedClassifierHead
 from visualization import plot_all_results, visualize_distribution
@@ -26,12 +26,15 @@ from visualization import plot_all_results, visualize_distribution
 #     visualize_violinplot
 # )
 
+
 args = get_args()
 
 print("\n========== ARGUMENTS ==========")
 for k, v in sorted(vars(args).items()):
     print(f"{k}: {v}")
 print("================================\n")
+
+set_seed(args.seed)
 
 # Only import wandb if needed
 wandb_run = None
@@ -104,7 +107,7 @@ results = train_and_evaluate(
     args,
     Xf, Xs, y, feature_groups,
     get_torch_model, get_ml_model, PretrainedClassifierHead,
-    encode_sequence_windows,          # <--- add these lines
+    encode_sequence_windows,          
     make_balanced_test,
     oversample, undersample, smote_sample, smotee_sample,
     get_loss, get_optimizer, get_scheduler,
@@ -188,7 +191,7 @@ metrics_df = pd.DataFrame({
 metrics_df.index.name = 'Metric'
 
 # Excel file path includes data name, model, and timestamp
-excel_path = f"results/{data_name}_{args.model}_{args.features}_{args.window_size}_{timestamp}_metrics.xlsx"
+excel_path = f"results/{args.model}_{args.features}_{args.window_size}_{timestamp}_metrics.xlsx"
 
 with pd.ExcelWriter(excel_path) as writer:
     # sheet 1: the metrics table
