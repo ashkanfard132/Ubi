@@ -3,6 +3,9 @@ import torch
 import torch.optim as optim
 import numpy as np
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, matthews_corrcoef, confusion_matrix, fbeta_score
+import torch
+import random
+
 
 def compute_metrics(y_true, y_pred, y_prob):
     cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
@@ -71,7 +74,7 @@ def get_scheduler(optimizer, sched_type='step', step_size=10, gamma=0.1):
     elif sched_type == 'cosine':
         return optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=T_max)
     elif sched_type == 'none':
-        return None 
+        return None
     else:
         raise ValueError(f"Unsupported scheduler type: {sched_type}")
 
@@ -103,3 +106,11 @@ def find_best_threshold(y_true, y_probs, metric='f1'):
             best_thresh = t
     return best_thresh, best_score
 
+
+def set_seed(seed: int = 42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True  # if full determinism is desired
+    torch.backends.cudnn.benchmark = False     # avoid nondeterminism for conv layers
