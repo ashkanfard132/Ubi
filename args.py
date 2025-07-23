@@ -60,5 +60,6 @@ def get_args():
     )
     parser.add_argument('--best_threshold', action='store_true',
     help='Find best threshold from validation set and use for test (ML models only)')
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility.")
 
     return parser.parse_args()
