@@ -136,15 +136,15 @@ class PretrainedClassifierHead(nn.Module):
         super().__init__()
         self.encoder = encoder
         if hasattr(encoder, 'config') and hasattr(encoder.config, 'hidden_size'):
-            hidden_size = encoder.config.hidden_size  # ProtBERT
+            hidden_size = encoder.config.hidden_size  
         elif hasattr(encoder, 'embed_dim'):
-            hidden_size = encoder.embed_dim          # ESM
+            hidden_size = encoder.embed_dim          
         else:
             hidden_size = 768  # fallback
 
         self.fc1 = nn.Linear(hidden_size, hidden_dim)
         self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(dropout)  # <-- Added
+        self.dropout = nn.Dropout(dropout) 
         self.fc2 = nn.Linear(hidden_dim, 1)
 
     def forward(self, input_ids=None, attention_mask=None, tokens=None):
@@ -211,13 +211,14 @@ def get_ml_model(name, y=None, random_state=42):
 
     elif name == 'svm':
         if HAS_CUMLSVM:
-            use_probability = True 
+            
+            use_probability = True  
             if use_probability:
                 return CuMLSVC(
                     kernel='rbf',
                     C=5.0,
                     probability=True,
-                    gamma= 0.0001,
+                    gamma= 0.0001 ,
                     verbose=False
                     
                 )
@@ -227,22 +228,23 @@ def get_ml_model(name, y=None, random_state=42):
                     class_weight='balanced',
                     C=5.0,
                     probability=False,
-                    gamma= 0.0001,
+                    gamma='scale',
                     verbose=False
                 )
         else:
+            
             return SklearnSVC(
                 probability=True,
                 class_weight='balanced',
                 kernel='rbf',
                 C=5.0,
-                gamma= 0.0001,
+                gamma='scale',
                 random_state=random_state
             )
 
 
     elif name == 'xgb':
-       
+        
         if n_pos > 0:
             scale_pos_weight = float(n_neg) / float(n_pos)
         else:
@@ -267,7 +269,7 @@ def get_ml_model(name, y=None, random_state=42):
         )
 
     elif name in ('cat', 'catboost'):
-       
+        
         if n_pos > 0:
             total = n_pos + n_neg
             class_weights = [n_neg/total, n_pos/total]
