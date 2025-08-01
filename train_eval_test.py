@@ -33,7 +33,7 @@ def train_and_evaluate(
     Returns: (metrics_nat, metrics_bal)
     """
 
-    SEQ_MODELS = ['cnn', 'lstm', 'transformer', 'prot_bert', 'esm2_t6_8m']
+    SEQ_MODELS = ['cnn', 'lstm', 'gru', 'transformer', 'prot_bert', 'esm2_t6_8m']
     FEAT_MODELS = ['mlp', 'rf', 'xgb', 'ada', 'cat', 'svm', 'lreg']
 
     metrics_nat_list = []
@@ -275,7 +275,7 @@ def _one_fold_train_eval(
 
     # --- Model ---
     # model_name = args.model.lower()
-    if model_name in ['mlp', 'cnn', 'lstm', 'transformer']:
+    if model_name in ['mlp', 'cnn', 'lstm', 'gru', 'transformer']:
         input_dim = Xf_train.shape[1] if model_name == 'mlp' else 21
         model = get_torch_model(model_name, input_dim, dropout=args.dropout, device=args.device)
         use_torch = True
@@ -747,3 +747,4 @@ def predict(
     probs = torch.sigmoid(torch.from_numpy(outputs)).numpy()
     preds = (probs >= threshold).astype(int)
     return preds, probs
+
