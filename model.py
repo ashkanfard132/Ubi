@@ -71,7 +71,31 @@ class LSTMClassifier(nn.Module):
     def forward(self, x):
         x = self.embedding(x)
         _, (h_n, _) = self.lstm(x)
-        h = torch.cat((h_n[0], h_n[1]), dim=1)  # Concatenate forward/backward final states
+        h = torch.cat((h_n[0], h_n[1]), dim=1) 
+        h = self.dropout(h)
+        return self.fc(h).squeeze(1)
+
+class GRUClassifier(nn.Module):
+    def __init__(self, vocab_size, embed_dim=50, hidden_size=64, dropout=0.3, num_layers=2):
+        super().__init__()
+        self.embedding = nn.Embedding(vocab_size, embed_dim)
+        self.gru = nn.GRU(
+            embed_dim,
+            hidden_size,
+            batch_first=True,
+            bidirectional=True,
+            dropout=dropout if num_layers > 1 else 0,
+            num_layers=num_layers
+        )
+        self.dropout = nn.Dropout(dropout)
+        self.fc = nn.Linear(hidden_size * 2, 1)
+
+    def forward(self, x):
+        x = self.embedding(x)
+        _, h_n = self.gru(x)
+        # h_n shape: (num_layers * num_directions, batch, hidden_size)
+        # Grab last forward and backward hidden states
+        h = torch.cat((h_n[0], h_n[1]), dim=1)
         h = self.dropout(h)
         return self.fc(h).squeeze(1)
 
@@ -174,6 +198,8 @@ def get_torch_model(name, input_dim_or_vocab=None, device='cpu', freeze=True, dr
         return CNNClassifier(vocab_size=input_dim_or_vocab, dropout=dropout)
     elif name == 'lstm':
         return LSTMClassifier(vocab_size=input_dim_or_vocab, dropout=dropout)
+    elif name == 'gru': 
+        return GRUClassifier(vocab_size=input_dim_or_vocab, dropout=dropout)
     elif name == 'transformer':
         return TransformerClassifier(vocab_size=input_dim_or_vocab, dropout=dropout)
     elif name in ['prot_bert', 'esm2_t6_8m']:
@@ -311,4 +337,3 @@ def get_ml_model(name, y=None, random_state=42):
 
     else:
         raise ValueError(f"Unknown ML model: {name}")
-
