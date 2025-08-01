@@ -4,7 +4,7 @@ def get_args():
     parser = argparse.ArgumentParser(description="Ubiquitination Site Prediction")
     parser.add_argument('--model', type=str, required=True,
                         choices=[
-                            'mlp', 'cnn', 'lstm', 'transformer',
+                            'mlp', 'cnn', 'lstm', 'gru', 'transformer',
                             'rf', 'xgb', 'ada', 'cat', 'svm','lreg',
                             'prot_bert', 'esm2_t6_8m'
                         ],
@@ -63,3 +63,4 @@ def get_args():
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility.")
 
     return parser.parse_args()
+
