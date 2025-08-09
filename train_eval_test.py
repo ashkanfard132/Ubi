@@ -299,7 +299,8 @@ def _one_fold_train_eval(
         if args.loss == "bce" and args.pos_weight is not None:
             pos_weight = torch.tensor(args.pos_weight, dtype=torch.float32).to(device)
         loss_fn = get_loss(args.loss, pos_weight=pos_weight)
-        optimizer = get_optimizer(model, args.optim, args.lr)
+        # optimizer = get_optimizer(model, args.optim, args.lr)
+        optimizer = get_optimizer(model, args.optim, args.lr, weight_decay=args.weight_decay)
         if args.sched == "cosine":
             scheduler = get_scheduler(optimizer, args.sched, t_max=args.t_max)
         elif args.sched == "none":
@@ -747,4 +748,5 @@ def predict(
     probs = torch.sigmoid(torch.from_numpy(outputs)).numpy()
     preds = (probs >= threshold).astype(int)
     return preds, probs
+
 
