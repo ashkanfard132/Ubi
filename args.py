@@ -30,6 +30,8 @@ def get_args():
                         help='Positive class weight for BCE loss. If not set, will use n_neg/n_pos')
     parser.add_argument('--optim', type=str, default='adam',
                         choices=['adam', 'sgd', 'rmsprop', 'adamw', 'amsgrad'])
+    parser.add_argument('--weight_decay', type=float, default=0.01,
+                        help='Weight decay (L2 regularization) factor for the optimizer')
     parser.add_argument('--sched', type=str, default='step',
                         choices=['step', 'exp', 'plateau', 'cosine', 'none'])
     parser.add_argument('--step_size', type=int, default=10)
@@ -63,4 +65,5 @@ def get_args():
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility.")
 
     return parser.parse_args()
+
 
