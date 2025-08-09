@@ -50,21 +50,21 @@ def get_loss(loss_type='bce', pos_weight=None):
     else:
         raise ValueError(f"Unsupported loss type: {loss_type}")
 
-def get_optimizer(model, optim_type='adam', lr=0.001):
+def get_optimizer(model, optim_type='adam', lr=0.001, weight_decay=0.0):
     if optim_type == 'adam':
-        return optim.Adam(model.parameters(), lr=lr)
+        return optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     elif optim_type == 'sgd':
-        return optim.SGD(model.parameters(), lr=lr, momentum=0.9)
+        return optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=weight_decay)
     elif optim_type == 'rmsprop':
-        return optim.RMSprop(model.parameters(), lr=lr)
+        return optim.RMSprop(model.parameters(), lr=lr, weight_decay=weight_decay)
     elif optim_type == 'adamw':
-        return optim.AdamW(model.parameters(), lr=lr)
+        return optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     elif optim_type == 'amsgrad':
-        return optim.Adam(model.parameters(), lr=lr, amsgrad=True)
+        return optim.Adam(model.parameters(), lr=lr, amsgrad=True, weight_decay=weight_decay)
     else:
         raise ValueError(f"Unsupported optimizer type: {optim_type}")
 
-def get_scheduler(optimizer, sched_type='step', step_size=10, gamma=0.1):
+def get_scheduler(optimizer, sched_type='step', step_size=10, gamma=0.1, t_max= 5):
     if sched_type == 'step':
         return optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
     elif sched_type == 'exp':
@@ -72,7 +72,7 @@ def get_scheduler(optimizer, sched_type='step', step_size=10, gamma=0.1):
     elif sched_type == 'plateau':
         return optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=gamma, patience=3)
     elif sched_type == 'cosine':
-        return optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=T_max)
+        return optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=t_max)
     elif sched_type == 'none':
         return None
     else:
@@ -114,3 +114,4 @@ def set_seed(seed: int = 42):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True  # if full determinism is desired
     torch.backends.cudnn.benchmark = False     # avoid nondeterminism for conv layers
+
