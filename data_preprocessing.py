@@ -218,7 +218,7 @@ def load_dataset(
     """Loads dataset, extracts features, and prepares labels for ML models."""
 
     if selected_features is None:
-        selected_features = ['aac', 'dpc']
+        selected_features = ['binary']
 
     # Validate features
     unknown = set(selected_features) - VALID_FEATURES
@@ -388,4 +388,5 @@ def load_dataset(
     print(f"[INFO] Loaded {len(y_np)} samples: {sum(y_np == 1)} positives, {sum(y_np == 0)} negatives. Skipped {skipped} entries.")
 
     return X_feat_np, np.array(X_seq), y_np, feature_groups
+
 
