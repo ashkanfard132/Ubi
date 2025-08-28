@@ -12,10 +12,17 @@ from data_preprocessing import (
     smotee_sample,
     kfold_split
 )
-from utils import get_loss, get_optimizer, get_scheduler, make_balanced_test, compute_metrics, find_best_threshold
+from utils import (
+  get_loss, get_optimizer, get_scheduler, make_balanced_test,
+  compute_metrics, find_best_threshold, protbert_space, _parse_list,
+  _svm_grid_search
+)
 from tqdm import tqdm
 import gc
+from visualization import plot_training_curves
 
+
+PROTBERT_FAMILY = {'prot_bert', 'distil_prot_bert'}
 
 def train_and_evaluate(
     args,
@@ -25,7 +32,8 @@ def train_and_evaluate(
     make_balanced_test,
     oversample, undersample, smote_sample, smotee_sample,
     get_loss, get_optimizer, get_scheduler,
-    train_model, evaluate_model
+    train_model, evaluate_model,
+    wandb_run=None
 ):
     """
     Handles both standard split and k-fold cross-validation,
@@ -33,8 +41,10 @@ def train_and_evaluate(
     Returns: (metrics_nat, metrics_bal)
     """
 
-    SEQ_MODELS = ['cnn', 'lstm', 'gru', 'transformer', 'prot_bert', 'esm2_t6_8m']
+    SEQ_MODELS = ['cnn', 'lstm', 'gru', 'transformer', 'prot_bert', 'distil_prot_bert', 'esm2_t6_8m']
     FEAT_MODELS = ['mlp', 'rf', 'xgb', 'ada', 'cat', 'svm', 'lreg']
+
+    
 
     metrics_nat_list = []
     metrics_bal_list = []
@@ -57,7 +67,6 @@ def train_and_evaluate(
             Xf_val_bal, Xs_val_bal, y_val_bal = make_balanced_test(Xf_val, Xs_val, y_val)
             Xf_test_bal, Xs_test_bal, y_test_bal = make_balanced_test(Xf_test, Xs_test, y_test)
             
-            # Do all sampling, training, evaluation, etc. as below:
             out = _one_fold_train_eval(
                 args, Xf_train, Xs_train, y_train,
                 Xf_val, Xs_val, y_val,
@@ -69,16 +78,17 @@ def train_and_evaluate(
                 oversample, undersample, smote_sample, smotee_sample,
                 get_loss, get_optimizer, get_scheduler,
                 train_model, evaluate_model,
-                SEQ_MODELS, FEAT_MODELS
+                SEQ_MODELS, FEAT_MODELS,
+                wandb_run=wandb_run
             )
             last_out = out
             fold_metrics_nat.append(out["metrics_nat"])
             fold_metrics_bal.append(out["metrics_bal"])
-            # Only append val_bal for DL
+            
             if out.get("metrics_val_bal", None) is not None:
                 fold_metrics_val_bal.append(out["metrics_val_bal"])
 
-            if "best_thresh" in out:   # <-- NEW
+            if "best_thresh" in out:   
                 fold_best_thresholds.append(out["best_thresh"])
 
             print(f"Fold {fold_num} NATURAL metrics:")
@@ -87,11 +97,7 @@ def train_and_evaluate(
             print(f"Fold {fold_num} BALANCED metrics:")
             for k, v in out["metrics_bal"].items():
                 print(f"  {k}: {v:.4f}")
-            # if out.get("metrics_val_bal", None) is not None:
-            #     print(f"Fold {fold_num} VAL BALANCED (DL only):")
-            #     for k, v in out["metrics_val_bal"].items():
-            #         print(f"  {k}: {v:.4f}")
-        
+       
         # Compute mean (final) metrics
         metrics_nat = {k: np.mean([m[k] for m in fold_metrics_nat]) for k in fold_metrics_nat[0]}
         metrics_bal = {k: np.mean([m[k] for m in fold_metrics_bal]) for k in fold_metrics_bal[0]}
@@ -127,6 +133,7 @@ def train_and_evaluate(
               
               "Xf_test":         Xf_test,
               "Xf_test_bal":     Xf_test_bal,
+              "history":         last_out.get("history", None)
           }
 
     else:
@@ -151,7 +158,8 @@ def train_and_evaluate(
             oversample, undersample, smote_sample, smotee_sample,
             get_loss, get_optimizer, get_scheduler,
             train_model, evaluate_model,
-            SEQ_MODELS, FEAT_MODELS
+            SEQ_MODELS, FEAT_MODELS,
+            wandb_run=wandb_run
         )
         return dict(
             metrics_nat=out["metrics_nat"],
@@ -169,6 +177,7 @@ def train_and_evaluate(
             # optionally, for sequences:
             Xs_test=Xs_test,
             Xs_test_bal=Xs_test_bal,
+            history=out.get("history", None)
         )
 
 
@@ -185,10 +194,12 @@ def _one_fold_train_eval(
     oversample, undersample, smote_sample, smotee_sample,
     get_loss, get_optimizer, get_scheduler,
     train_model, evaluate_model,
-    SEQ_MODELS, FEAT_MODELS
+    SEQ_MODELS, FEAT_MODELS,
+    wandb_run=None
 ):
     # best_thresh = 0.5
     model_name = args.model.lower()
+    history = None
     # --- Sampling ---
     sampling_steps = args.sampling
     sampling_ratios = args.sampling_ratios
@@ -230,7 +241,7 @@ def _one_fold_train_eval(
         Xf_val_bal = scaler.transform(Xf_val_bal)
         Xf_test = scaler.transform(Xf_test)
         Xf_test_bal = scaler.transform(Xf_test_bal)
-        # print("Mean/std of train PSSM after scaling:", np.mean(Xf_train), np.std(Xf_train))
+    
 
         train_data, val_data = Xf_train, Xf_val
         val_data_bal = Xf_val_bal
@@ -245,17 +256,16 @@ def _one_fold_train_eval(
             if isinstance(seq, str):
                 return seq
             elif isinstance(seq, np.ndarray):
-                # If it's an array of single characters
-                if seq.dtype.kind in {'U', 'S'}:  # unicode or bytes
+                
+                if seq.dtype.kind in {'U', 'S'}:  
                     return ''.join(seq.tolist())
-                # If it's an array of ints, you must have a mapping!
-                # e.g. [1,2,3] --> "ARN"
+             
                 else:
                     raise ValueError("You are passing integer-encoded sequences to ESM2, which expects AA strings.")
             else:
                 raise ValueError(f"Unknown sequence type: {type(seq)}")
 
-        if model_name in ['prot_bert', 'esm2_t6_8m']:
+        if model_name in PROTBERT_FAMILY or model_name == 'esm2_t6_8m':
             train_data = [seq_to_aa_string(seq) for seq in Xs_train]
             val_data = [seq_to_aa_string(seq) for seq in Xs_val]
             val_data_bal = [seq_to_aa_string(seq) for seq in Xs_val_bal]
@@ -273,22 +283,38 @@ def _one_fold_train_eval(
     else:
         raise ValueError(f"Unknown model type: {args.model}")
 
+
     # --- Model ---
-    # model_name = args.model.lower()
+    model_name = args.model.lower()
+    history = None
+
+    grid_used = False
+
     if model_name in ['mlp', 'cnn', 'lstm', 'gru', 'transformer']:
         input_dim = Xf_train.shape[1] if model_name == 'mlp' else 21
         model = get_torch_model(model_name, input_dim, dropout=args.dropout, device=args.device)
         use_torch = True
         tokenizer_or_batch_converter = None
-    elif model_name in ['prot_bert', 'esm2_t6_8m']:
+
+    elif model_name in ['prot_bert', 'distil_prot_bert', 'esm2_t6_8m']:
         model, tokenizer_or_batch_converter = get_torch_model(
             model_name, device=args.device, freeze=args.freeze_pretrained, dropout=args.dropout
         )
         use_torch = True
+
     else:
-        model = get_ml_model(model_name, y=y_train, random_state=args.seed)
+        # === ML models ===
+        if model_name == 'svm' and getattr(args, 'svm_grid', False):
+
+            model, _best_params, _best_auc = _svm_grid_search(
+                train_data, y_train, val_data, y_val, args, wandb_run=wandb_run
+            )
+            grid_used = True
+        else:
+            model = get_ml_model(model_name, y=y_train, random_state=args.seed)
         use_torch = False
         tokenizer_or_batch_converter = None
+
 
 
     # --- Training and evaluation ---
@@ -299,57 +325,68 @@ def _one_fold_train_eval(
         if args.loss == "bce" and args.pos_weight is not None:
             pos_weight = torch.tensor(args.pos_weight, dtype=torch.float32).to(device)
         loss_fn = get_loss(args.loss, pos_weight=pos_weight)
-        # optimizer = get_optimizer(model, args.optim, args.lr)
+
         optimizer = get_optimizer(model, args.optim, args.lr, weight_decay=args.weight_decay)
+
         if args.sched == "cosine":
             scheduler = get_scheduler(optimizer, args.sched, t_max=args.t_max)
         elif args.sched == "none":
             scheduler = None
         else:
             scheduler = get_scheduler(optimizer, args.sched, args.step_size, args.gamma)
+        if wandb_run:
+            wandb_run.watch(model, log="all", log_freq=100)
 
-        model = train_model(args,
+        model, history = train_model(args,
             model, train_data, y_train, epochs=args.epochs, batch_size=args.batch_size,
             device=device, loss_fn=loss_fn, optimizer=optimizer, scheduler=scheduler,
             val_data=val_data, val_labels=y_val,
             val_data_bal=val_data_bal, val_labels_bal=val_labels_bal,
             tokenizer_or_batch_converter=tokenizer_or_batch_converter,    
-            model_name=model_name                                         
+            model_name=model_name,
+            wandb_run=wandb_run                                       
         )
 
+
         if getattr(args, "best_threshold", False):
-            # Use your evaluate_model function to get validation probabilities (natural val set)
+            
             _, _, y_val_probs = evaluate_model(
                 model, val_data, y_val, device=device,
                 tokenizer_or_batch_converter=tokenizer_or_batch_converter,
-                model_name=model_name
+                model_name=model_name,
+                max_length=args.window_size 
             )
             best_thresh, best_f2 = find_best_threshold(y_val, y_val_probs, metric='f2')
             print(f"[INFO] Best threshold on val set (F2): {best_thresh:.3f} (F2={best_f2:.4f})")
+            if wandb_run:
+                wandb_run.log({"best_threshold": float(best_thresh), "best_f2": float(best_f2)})
         else:
             best_thresh = 0.5
 
-        # Use best_thresh in subsequent evaluations:
+    
         metrics_nat, y_pred_nat, y_prob_nat = evaluate_model(
             model, test_data_natural, y_test, device=device, 
             tokenizer_or_batch_converter=tokenizer_or_batch_converter, 
             model_name=model_name,
             threshold=best_thresh,
-            batch_size=args.batch_size_val
+            batch_size=args.batch_size_val,
+            max_length=args.window_size
         )
         metrics_bal, y_pred_bal, y_prob_bal = evaluate_model(
             model, test_data_balanced, y_test_bal, device=device, 
             tokenizer_or_batch_converter=tokenizer_or_batch_converter, 
             model_name=model_name,
             threshold=best_thresh,
-            batch_size=args.batch_size_val 
+            batch_size=args.batch_size_val,
+            max_length=args.window_size
         )
         metrics_val_bal, y_pred_val_bal, y_prob_val_bal = evaluate_model(
             model, val_data_bal, y_val_bal, device=device, 
             tokenizer_or_batch_converter=tokenizer_or_batch_converter, 
             model_name=model_name,
             threshold=best_thresh,
-            batch_size=args.batch_size_val 
+            batch_size=args.batch_size_val,
+            max_length=args.window_size
         )
     else:
         model.fit(train_data, y_train)
@@ -390,6 +427,7 @@ def _one_fold_train_eval(
         "y_pred_bal": y_pred_bal,
         "y_prob_bal": y_prob_bal,
         "best_thresh": best_thresh,
+        "history": history, 
     }
 
 
@@ -409,7 +447,8 @@ def train_model(args,
     val_data_bal=None,
     val_labels_bal=None,
     tokenizer_or_batch_converter=None,   
-    model_name=None                     
+    model_name=None,
+    wandb_run=None                   
 ):
     model.to(device)
     if loss_fn is None:
@@ -417,6 +456,28 @@ def train_model(args,
     if optimizer is None:
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     model.train()
+
+    history = {
+        'train_loss': [],
+        'train_acc': [],
+        'train_prec': [],
+        'train_rec': [],
+        'train_f1': [],
+        'train_roc_auc': [],
+        'val_loss': [],
+        'val_acc': [],
+        'val_prec': [],
+        'val_rec': [],
+        'val_f1': [],
+        'val_roc_auc': [],
+        'val_bal_loss': [],       
+        'val_bal_acc': [],
+        'val_bal_prec': [],
+        'val_bal_rec': [],
+        'val_bal_f1': [],
+        'val_bal_roc_auc': [],
+    }
+    
 
     dataset_size = len(train_data)
     for epoch in range(epochs):
@@ -442,23 +503,36 @@ def train_model(args,
 
             optimizer.zero_grad()
 
-            if model_name == "prot_bert":
+            if model_name in PROTBERT_FAMILY:
                 tokenizer = tokenizer_or_batch_converter
-                batch_seqs = list(train_data_shuf[start_idx:end_idx])
+
+                batch_seqs = [protbert_space(s) for s in train_data_shuf[start_idx:end_idx]]
                 batch = tokenizer(
                     batch_seqs,
                     return_tensors='pt',
                     padding=True,
                     truncation=True,
-                    max_length=args.window_size
+                    max_length=args.window_size         
                 )
+
                 input_ids = batch["input_ids"].to(device)
                 attention_mask = batch["attention_mask"].to(device)
-                outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+       
+                out = model(input_ids=input_ids, attention_mask=attention_mask)
+                outputs = out.logits if hasattr(out, "logits") else out
+                if outputs.dim() > 1:
+                    outputs = outputs.squeeze(-1)
+             
+                if tokenizer.unk_token_id is not None:
+                    unk_rate = (input_ids == tokenizer.unk_token_id).float().mean().item()
+                    if wandb_run:
+                        wandb_run.log({"tokenizer/unk_rate": float(unk_rate)}, step=epoch + 1)
+                    if unk_rate > 0.1:
+                        print(f"[WARN] High UNK rate in ProtBert tokens: {unk_rate:.2%}")
                 loss = loss_fn(outputs, batch_labels)
             elif model_name == "esm2_t6_8m":
                 batch_converter = tokenizer_or_batch_converter
-                # Force all sequences to str
+               
                 batch_seqs = [("protein", str(seq)) for seq in train_data_shuf[start_idx:end_idx]]
                 _, _, batch_tokens = batch_converter(batch_seqs)
                 batch_tokens = batch_tokens.to(device)
@@ -483,7 +557,7 @@ def train_model(args,
 
         all_outputs = torch.cat(all_outputs, dim=0).numpy()
         all_targets = torch.cat(all_targets, dim=0).numpy()
-        # probs = 1 / (1 + np.exp(-all_outputs))
+   
         probs = torch.sigmoid(torch.from_numpy(all_outputs)).numpy()
         preds = (probs >= 0.5).astype(int)
 
@@ -496,25 +570,32 @@ def train_model(args,
         except ValueError:
             roc_auc = float('nan')
 
+        history['train_loss'].append(float(loss.item()))
+        history['train_acc'].append(float(accuracy))
+        history['train_prec'].append(float(precision))
+        history['train_rec'].append(float(recall))
+        history['train_f1'].append(float(f1))
+        history['train_roc_auc'].append(float(roc_auc))
+
         # === VALIDATION ===
 
         if val_data is not None and val_labels is not None:
             model.eval()
             with torch.no_grad():
-                # --- CHANGED: handle prot_bert batching ---
-                if model_name == "prot_bert":
+   
+                if model_name in PROTBERT_FAMILY:
                     tokenizer = tokenizer_or_batch_converter
-                    val_seqs = list(val_data)
-                    batch = tokenizer(
-                        val_seqs,
-                        return_tensors='pt',
-                        padding=True,
-                        truncation=True
-                    )
+
+                    val_seqs = [protbert_space(s) for s in val_data]
+                    batch = tokenizer(val_seqs, return_tensors='pt', padding=True, truncation=True, max_length=args.window_size)
                     input_ids = batch["input_ids"].to(device)
                     attention_mask = batch["attention_mask"].to(device)
-                    outputs_val = model(input_ids=input_ids, attention_mask=attention_mask)
-                    y_val = torch.tensor(val_labels, dtype=torch.float32).to(device)
+                    out_val = model(input_ids=input_ids, attention_mask=attention_mask)
+                    outputs_val = out_val.logits if hasattr(out_val, "logits") else out_val
+                    if outputs_val.dim() > 1:
+                        outputs_val = outputs_val.squeeze(-1)
+                    y_val = torch.tensor(val_labels, dtype=torch.float32, device=device)
+
                 elif model_name == "esm2_t6_8m":
                     batch_converter = tokenizer_or_batch_converter
                     val_data_tuples = [("protein", seq) for seq in val_data]
@@ -540,6 +621,13 @@ def train_model(args,
                 except ValueError:
                     roc_auc_val = float('nan')
 
+                history['val_loss'].append(float(loss_val.item()))
+                history['val_acc'].append(float(acc_val))
+                history['val_prec'].append(float(prec_val))
+                history['val_rec'].append(float(rec_val))
+                history['val_f1'].append(float(f1_val))
+                history['val_roc_auc'].append(float(roc_auc_val))
+
                 print_str = (
                     f"Epoch {epoch+1}/{epochs} | "
                     f"Train: Loss={loss.item():.4f} Acc={accuracy:.4f} Prec={precision:.4f} "
@@ -550,18 +638,19 @@ def train_model(args,
 
                 # BALANCED VAL, IF PROVIDED
                 if val_data_bal is not None and val_labels_bal is not None:
-                    # --- CHANGED: handle prot_bert batching ---
-                    if model_name == "prot_bert":
-                        batch_bal = tokenizer(
-                            list(val_data_bal),
-                            return_tensors='pt',
-                            padding=True,
-                            truncation=True
-                        )
+              
+                    if model_name in PROTBERT_FAMILY:
+
+                        tokenizer = tokenizer_or_batch_converter
+                        val_bal_seqs = [protbert_space(s) for s in val_data_bal]
+                        batch_bal = tokenizer(val_bal_seqs, return_tensors='pt', padding=True, truncation=True, max_length=args.window_size)
                         input_ids_bal = batch_bal["input_ids"].to(device)
                         attention_mask_bal = batch_bal["attention_mask"].to(device)
-                        outputs_val_bal = model(input_ids=input_ids_bal, attention_mask=attention_mask_bal)
-                        y_val_bal = torch.tensor(val_labels_bal, dtype=torch.float32).to(device)
+                        out_val_bal = model(input_ids=input_ids_bal, attention_mask=attention_mask_bal)
+                        outputs_val_bal = out_val_bal.logits if hasattr(out_val_bal, "logits") else out_val_bal
+                        if outputs_val_bal.dim() > 1:
+                            outputs_val_bal = outputs_val_bal.squeeze(-1)
+                        y_val_bal = torch.tensor(val_labels_bal, dtype=torch.float32, device=device)
                     elif model_name == "esm2_t6_8m":
                         batch_converter = tokenizer_or_batch_converter
                         val_bal_tuples = [("protein", seq) for seq in val_data_bal]
@@ -587,6 +676,13 @@ def train_model(args,
                     except ValueError:
                         roc_auc_val_bal = float('nan')
 
+                    history['val_bal_loss'].append(float(loss_val_bal.item()))
+                    history['val_bal_acc'].append(float(acc_val_bal))
+                    history['val_bal_prec'].append(float(prec_val_bal))
+                    history['val_bal_rec'].append(float(rec_val_bal))
+                    history['val_bal_f1'].append(float(f1_val_bal))
+                    history['val_bal_roc_auc'].append(float(roc_auc_val_bal))
+
                     print_str += (
                         f"\n  Val (balanced): Loss={loss_val_bal.item():.4f} Acc={acc_val_bal:.4f} "
                         f"Prec={prec_val_bal:.4f} Rec={rec_val_bal:.4f} "
@@ -602,13 +698,48 @@ def train_model(args,
                 f"F1: {f1:.4f} | ROC AUC: {roc_auc:.4f}"
             )
 
+        if wandb_run:
+            log_dict = {
+                "epoch": epoch + 1,
+                "train/loss": float(loss.item()),
+                "train/acc": float(accuracy),
+                "train/precision": float(precision),
+                "train/recall": float(recall),
+                "train/f1": float(f1),
+                "train/roc_auc": float(roc_auc),
+                "lr": float(optimizer.param_groups[0]["lr"]),
+                # distributions
+                "dist/logits": wandb_run.Histogram(all_outputs.flatten()),
+                "dist/probs":  wandb_run.Histogram(probs.flatten()),
+            }
+            if val_data is not None and val_labels is not None:
+                log_dict.update({
+                    "val/loss": float(loss_val.item()),
+                    "val/acc": float(acc_val),
+                    "val/precision": float(prec_val),
+                    "val/recall": float(rec_val),
+                    "val/f1": float(f1_val),
+                    "val/roc_auc": float(roc_auc_val),
+                })
+            if val_data_bal is not None and val_labels_bal is not None:
+                log_dict.update({
+                    "val_bal/loss": float(loss_val_bal.item()),
+                    "val_bal/acc": float(acc_val_bal),
+                    "val_bal/precision": float(prec_val_bal),
+                    "val_bal/recall": float(rec_val_bal),
+                    "val_bal/f1": float(f1_val_bal),
+                    "val_bal/roc_auc": float(roc_auc_val_bal),
+                })
+            wandb_run.log(log_dict, step=epoch + 1) 
+
         if scheduler is not None:
             if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
                 scheduler.step(loss.item())
             else:
                 scheduler.step()
 
-    return model
+    print("History content:", history)
+    return model, history   
 
 
 
@@ -620,7 +751,8 @@ def evaluate_model(
     device='cpu',
     tokenizer_or_batch_converter=None,   
     model_name=None,
-    batch_size=32,    
+    batch_size=32,
+    max_length=None    
 ):
     """
     Evaluates a model in batches to avoid OOM. Supports MLP, CNN, LSTM, transformer, prot_bert, esm2_t6_8m.
@@ -633,24 +765,27 @@ def evaluate_model(
     all_outputs = []
 
     with torch.no_grad():
-        if model_name == "prot_bert":
+        if model_name in PROTBERT_FAMILY:
+
             tokenizer = tokenizer_or_batch_converter
             for i in range(0, len(test_data), batch_size):
-                batch_seqs = list(test_data[i:i+batch_size])
+     
+                batch_seqs = [protbert_space(s) for s in test_data[i:i+batch_size]]
                 batch = tokenizer(
                     batch_seqs,
                     return_tensors='pt',
                     padding=True,
                     truncation=True,
+                    max_length=max_length
                 )
                 input_ids = batch['input_ids'].to(device)
                 attention_mask = batch['attention_mask'].to(device)
-                outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-                # If model returns a tuple (logits, ...), take logits
-                if isinstance(outputs, tuple):
-                    outputs = outputs[0]
+                out = model(input_ids=input_ids, attention_mask=attention_mask)
+                outputs = out.logits if hasattr(out, "logits") else out
+                if outputs.dim() > 1:
+                    outputs = outputs.squeeze(-1)
                 all_outputs.append(outputs.cpu().numpy())
-                del outputs, input_ids, attention_mask, batch
+                del out, outputs, input_ids, attention_mask, batch
                 torch.cuda.empty_cache()
         elif model_name == "esm2_t6_8m":
             batch_converter = tokenizer_or_batch_converter
@@ -659,7 +794,7 @@ def evaluate_model(
                 _, _, batch_tokens = batch_converter(batch_seqs)
                 batch_tokens = batch_tokens.to(device)
                 outputs = model(tokens=batch_tokens)
-                # If model returns a tuple (logits, ...), take logits
+
                 if isinstance(outputs, tuple):
                     outputs = outputs[0]
                 all_outputs.append(outputs.cpu().numpy())
@@ -678,7 +813,7 @@ def evaluate_model(
                 torch.cuda.empty_cache()
 
     outputs = np.concatenate(all_outputs, axis=0)
-    # probs = 1 / (1 + np.exp(-outputs))
+
     probs = torch.sigmoid(torch.from_numpy(outputs)).numpy()
     preds = (probs >= threshold).astype(int)
     metrics = compute_metrics(test_labels, preds, probs)
@@ -693,7 +828,8 @@ def predict(
     device='cpu', 
     tokenizer_or_batch_converter=None,    
     model_name=None,
-    batch_size=32             
+    batch_size=32,
+    max_length=None             
 ):
     """
     Predict in memory-safe batches. Supports: MLP, CNN, LSTM, transformer, prot_bert, esm2_t6_8m.
@@ -705,20 +841,21 @@ def predict(
     all_outputs = []
 
     with torch.no_grad():
-        if model_name == "prot_bert":
+        if model_name in PROTBERT_FAMILY:
+
             tokenizer = tokenizer_or_batch_converter
             for i in range(0, len(data), batch_size):
-                batch_seqs = list(data[i:i+batch_size])
-                batch = tokenizer(
-                    batch_seqs, return_tensors='pt', padding=True, truncation=True
-                )
+  
+                batch_seqs = [protbert_space(s) for s in data[i:i+batch_size]]
+                batch = tokenizer(batch_seqs, return_tensors='pt', padding=True, truncation=True, max_length=max_length)
                 input_ids = batch['input_ids'].to(device)
                 attention_mask = batch['attention_mask'].to(device)
-                outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-                if isinstance(outputs, tuple):
-                    outputs = outputs[0]
+                out = model(input_ids=input_ids, attention_mask=attention_mask)
+                outputs = out.logits if hasattr(out, "logits") else out
+                if outputs.dim() > 1:
+                    outputs = outputs.squeeze(-1)
                 all_outputs.append(outputs.cpu().numpy())
-                del outputs, input_ids, attention_mask, batch
+                del out, outputs, input_ids, attention_mask, batch
                 torch.cuda.empty_cache()
         elif model_name == "esm2_t6_8m":
             batch_converter = tokenizer_or_batch_converter
@@ -748,5 +885,4 @@ def predict(
     probs = torch.sigmoid(torch.from_numpy(outputs)).numpy()
     preds = (probs >= threshold).astype(int)
     return preds, probs
-
 
