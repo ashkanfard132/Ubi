@@ -12,19 +12,9 @@ from data_preprocessing import (
 from utils import make_balanced_test, get_loss, get_optimizer, get_scheduler, set_seed
 from train_eval_test import train_and_evaluate, train_model, evaluate_model
 from model import get_torch_model, get_ml_model, PretrainedClassifierHead
-from visualization import plot_all_results, visualize_distribution
-# from visualization import (
-#     visualize_distribution,
-#     visualize_confusion_matrix,
-#     visualize_roc,
-#     visualize_precision_recall,
-#     visualize_groupwise_pca,
-#     visualize_feature_distribution,
-#     visualize_feature_correlation,
-#     visualize_feature_scatter,
-#     visualize_boxplot,
-#     visualize_violinplot
-# )
+from visualization import (
+  plot_all_results, visualize_distribution, plot_training_curves, plot_eval_overlays)
+
 
 
 args = get_args()
@@ -36,10 +26,20 @@ print("================================\n")
 
 set_seed(args.seed)
 
-# Only import wandb if needed
+# WandB Setup
 wandb_run = None
+_HAS_WB_SK = False
 if args.wandb:
     import wandb
+    # >>> optional sklearn plot helpers
+    try:
+        from wandb.sklearn import plot_confusion_matrix as wb_conf_mat
+        from wandb.sklearn import plot_roc as wb_plot_roc
+        from wandb.sklearn import plot_precision_recall as wb_plot_pr
+        _HAS_WB_SK = True
+    except Exception:
+        _HAS_WB_SK = False
+
     if args.wandb_api_key:
         wandb.login(key=args.wandb_api_key)
     run_name = f"{args.model}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -77,24 +77,13 @@ if args.fasta2 and args.excel2:
     Xf = np.vstack([Xf1, Xf2])
     Xs = np.vstack([Xs1, Xs2])
     y = np.concatenate([y1, y2])
-    feature_groups = feature_groups1  # Assume features are the same; use Plant 1's mapping
+    feature_groups = feature_groups1 
 else:
     Xf, Xs, y = Xf1, Xs1, y1
     feature_groups = feature_groups1
 
-# print("Xf shape:", Xf.shape)
-# print("Sum of 'pssm' feature columns in Xf:", np.sum(Xf[:, feature_groups['PSSM']]))
-# print("Min/max of PSSM features:", np.min(Xf[:, feature_groups['PSSM']]), np.max(Xf[:, feature_groups['PSSM']]))
-
-# print("Positives in y:", np.sum(y))
-# print("Negatives in y:", np.sum(y == 0))
-
-# print("Any NaN in Xf:", np.isnan(Xf).any())
-# print("Any Inf in Xf:", np.isinf(Xf).any())
-
-
 # Visualize label distribution
-if args.plots:
+if args.plots and 'distribution' in args.plots:
     os.makedirs("results", exist_ok=True)
     visualize_distribution(y, "results/label_distribution.png")
     if args.wandb:
@@ -111,7 +100,8 @@ results = train_and_evaluate(
     make_balanced_test,
     oversample, undersample, smote_sample, smotee_sample,
     get_loss, get_optimizer, get_scheduler,
-    train_model, evaluate_model
+    train_model, evaluate_model,
+    wandb_run=wandb_run
 )
 
 metrics_nat = results["metrics_nat"]
@@ -124,36 +114,54 @@ y_pred_bal = results["y_pred_bal"]
 y_prob_bal = results["y_prob_bal"]
 Xf_test = results.get("Xf_test", None)
 Xf_test_bal = results.get("Xf_test_bal", None)
+history = results.get("history", None)
 
-# ---------------------------------------------------------------
+# Plot training curves (train vs val vs val_bal) once.
+if history and (args.plots is None or 'curves' in args.plots):
+    plot_training_curves(history, out_dir="results", prefix=f"{args.model}_", wandb=wandb_run)
 
-# Visualizations for NATURAL (original) test set
 
 if args.plots:
-    if y_test is not None and y_pred_nat is not None and y_prob_nat is not None:
-        plot_all_results(
-            Xf_test,
-            y_test,
-            y_pred_nat,
-            y_prob_nat,
-            feature_groups,
-            prefix="",
-            plot_dir="results",
-            wandb_run=wandb_run
-        )
-    if y_test_bal is not None and y_pred_bal is not None and y_prob_bal is not None:
-        plot_all_results(
-            Xf_test_bal,
-            y_test_bal,
-            y_pred_bal,
-            y_prob_bal,
-            feature_groups,
-            prefix="bal_",
-            plot_dir="results",
-            wandb_run=wandb_run
+    plot_all_results(
+        Xf_test, y_test, y_pred_nat, y_prob_nat, feature_groups,
+        prefix="", plot_dir="results", wandb=wandb_run, plots_to_make=args.plots, history=None
+    )
+    plot_all_results(
+        Xf_test_bal, y_test_bal, y_pred_bal, y_prob_bal, feature_groups,
+        prefix="bal_", plot_dir="results", wandb=wandb_run, plots_to_make=args.plots, history=None
+    )
+
+    if y_test is not None and y_prob_nat is not None and y_test_bal is not None and y_prob_bal is not None:
+        plot_eval_overlays(
+            y_nat=y_test, p_nat=y_prob_nat,
+            y_bal=y_test_bal, p_bal=y_prob_bal,
+            out_dir="results", prefix=f"{args.model}_", wandb=wandb_run
         )
 
+if args.wandb and _HAS_WB_SK:
 
+    y_prob_nat = np.asarray(y_prob_nat).reshape(-1)   
+    y_prob_bal = np.asarray(y_prob_bal).reshape(-1)   
+    assert y_test.shape[0] == y_prob_nat.shape[0], "y_test and y_prob_nat length mismatch"
+    assert y_test_bal.shape[0] == y_prob_bal.shape[0], "y_test_bal and y_prob_bal length mismatch"
+    prob2_nat = np.column_stack([1.0 - y_prob_nat, y_prob_nat])  
+    prob2_bal = np.column_stack([1.0 - y_prob_bal, y_prob_bal]) 
+
+    # Confusion matrices
+    try:
+        wb_conf_mat(y_test, y_pred_nat, labels=["neg", "pos"])
+        wb_conf_mat(y_test_bal, y_pred_bal, labels=["neg", "pos"])
+    except Exception as e:
+        wandb.log({"warn/conf_mat_error": str(e)})
+
+    # ROC + PR with explicit labels that match prob column order
+    try:
+        wb_plot_roc(y_test, prob2_nat, labels=["neg", "pos"])
+        wb_plot_roc(y_test_bal, prob2_bal, labels=["neg", "pos"])
+        wb_plot_pr(y_test, prob2_nat, labels=["neg", "pos"])
+        wb_plot_pr(y_test_bal, prob2_bal, labels=["neg", "pos"])
+    except Exception as e:
+        wandb.log({"warn/roc_pr_error": str(e)})
 
 # Save results
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -178,7 +186,6 @@ for k, v in metrics_bal.items():
 print(f"\nSaved balanced metrics to {results_path_bal}")
 
 # --- Save metrics to Excel ---
-# derive a simple “dataset” name from your input files
 data_name = os.path.splitext(
     os.path.basename(args.excel if args.excel else args.fasta)
 )[0]
@@ -206,6 +213,11 @@ with pd.ExcelWriter(excel_path) as writer:
 
 print(f"\nSaved all metrics to Excel: {excel_path}")
 
-if wandb_run:
+if args.wandb:
     wandb_run.log({f"nat_{k}": v for k, v in metrics_nat.items()})
     wandb_run.log({f"bal_{k}": v for k, v in metrics_bal.items()})
+    # summaries (show up on run page right sidebar)
+    if "f1" in metrics_nat:
+        wandb.run.summary["final/natural_f1"] = float(metrics_nat["f1"])
+    if "f1" in metrics_bal:
+        wandb.run.summary["final/balanced_f1"] = float(metrics_bal["f1"])
