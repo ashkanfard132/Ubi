@@ -5,6 +5,7 @@ import os
 from sklearn.model_selection import StratifiedKFold
 import os
 import re
+from scipy.sparse import lil_matrix, hstack
 
 AMINO_ACIDS = [
     "A", "R", "N", "D", "C", "Q", "E", "G", "H", "I",
@@ -24,11 +25,11 @@ def kfold_split(Xf, Xs, y, n_splits=10, random_state=42):
     skf_outer = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
     indices = np.arange(len(y))
     for fold, (trainval_idx, test_idx) in enumerate(skf_outer.split(Xf, y)):
-        # Now, from trainval, select val fold
+
         Xf_trainval, Xs_trainval, y_trainval = Xf[trainval_idx], Xs[trainval_idx], y[trainval_idx]
         skf_inner = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state + 1000 + fold)
         inner_split = skf_inner.split(Xf_trainval, y_trainval)
-        train_idx_rel, val_idx_rel = next(inner_split)  # Take first as val fold
+        train_idx_rel, val_idx_rel = next(inner_split)  
         train_idx = trainval_idx[train_idx_rel]
         val_idx = trainval_idx[val_idx_rel]
         yield {
@@ -206,17 +207,6 @@ def read_fasta(fasta_path):
             sequences[seq_id] = seq
     return sequences
 
-# def parse_pssm_folder(pssm_folder):
-#     """Parses a folder of PSSM .csv files into a dictionary {protein_id: np.array}."""
-#     if not pssm_folder or not os.path.exists(pssm_folder):
-#         return None
-#     pssm_data = {}
-#     for file in os.listdir(pssm_folder):
-#         if file.endswith(".csv"):
-#             pid = os.path.splitext(file)[0]
-#             df = pd.read_csv(os.path.join(pssm_folder, file), header=None)
-#             pssm_data[pid] = df.values
-#     return pssm_data
 
 def load_dataset(
     fasta_path,
@@ -228,7 +218,7 @@ def load_dataset(
     """Loads dataset, extracts features, and prepares labels for ML models."""
 
     if selected_features is None:
-        selected_features = ['aac', 'dpc', 'tpc']
+        selected_features = ['aac', 'dpc']
 
     # Validate features
     unknown = set(selected_features) - VALID_FEATURES
@@ -239,11 +229,11 @@ def load_dataset(
     df = pd.read_excel(excel_path)
     df.columns = df.columns.str.strip()
 
-    # Clean Protein ID and Position columns
+
     df['Protein ID'] = df['Protein ID'].astype(str).str.strip()
     df = df[df['Protein ID'].notna() & df['Position'].notna()]
 
-    # Build positives dictionary: {protein_id: set(positions)}
+
     positives = defaultdict(set)
     for _, row in df.iterrows():
         try:
@@ -251,7 +241,6 @@ def load_dataset(
         except Exception:
             continue
 
-    # Diagnostics: Check for missing IDs and out-of-bound positions
     total_positives = sum(len(v) for v in positives.values())
     missing_prot_id = 0
     missing_pos = 0
@@ -348,25 +337,12 @@ def load_dataset(
                     feature_groups['TPC'] = list(range(offset, offset + len(tpc)))
                     offset += len(tpc)
 
-            # 4. PSSM
-            # if 'pssm' in selected_features and prot_pssm is not None:
-            #     pssm_feat = []
-            #     for i in range(start, end):
-            #         if i < 0 or i >= prot_pssm.shape[0]:
-            #             pssm_feat.extend([0] * 20)
-            #         else:
-            #             pssm_feat.extend(list(prot_pssm[i]))
-            #     pssm_feat = [0] * 20 * pad_left + pssm_feat + [0] * 20 * pad_right
-            #     features.extend(pssm_feat)
-            #     if 'PSSM' not in feature_groups:
-            #         feature_groups['PSSM'] = list(range(offset, offset + len(pssm_feat)))
-            #         offset += len(pssm_feat)
-            # Assume: window_seq is always length window_size
+
             if 'pssm' in selected_features and prot_pssm is not None:
-                # For position `pos`, the PSSM window should match the window_seq (which is already padded with Xs).
+          
                 pssm_window = []
                 for aa_idx, aa in enumerate(window_seq):
-                    pssm_row = [0] * 20  # Default for padding/unknown
+                    pssm_row = [0] * 20  
                     seq_idx = pos - (window_size // 2) + aa_idx
                     if 0 <= seq_idx < prot_pssm.shape[0] and aa != 'X':
                         pssm_row = list(prot_pssm[seq_idx])
