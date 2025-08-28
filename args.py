@@ -3,12 +3,12 @@ import argparse
 def get_args():
     parser = argparse.ArgumentParser(description="Ubiquitination Site Prediction")
     parser.add_argument('--model', type=str, required=True,
-                        choices=[
-                            'mlp', 'cnn', 'lstm', 'gru', 'transformer',
-                            'rf', 'xgb', 'ada', 'cat', 'svm','lreg',
-                            'prot_bert', 'esm2_t6_8m'
-                        ],
-                        help='Model type: mlp, cnn, lstm, transformer, rf, xgb, ada, cat, svm, prot_bert, esm2_t6_8m')
+                         choices=[
+                             'mlp', 'cnn', 'lstm','gru', 'transformer',
+                             'rf', 'xgb', 'ada', 'cat', 'svm','lreg',
+                             'prot_bert', 'distil_prot_bert', 'esm2_t6_8m'
+                         ],
+                          help='Model type: mlp, cnn, lstm, transformer, rf, xgb, ada, cat, svm, prot_bert, esm2_t6_8m')
     parser.add_argument('--fasta', type=str, required=True, help='Path to first FASTA file')
     parser.add_argument('--excel', type=str, required=True, help='Path to first Excel file')
     parser.add_argument('--fasta2', type=str, help='Path to second FASTA file')
@@ -31,7 +31,8 @@ def get_args():
     parser.add_argument('--optim', type=str, default='adam',
                         choices=['adam', 'sgd', 'rmsprop', 'adamw', 'amsgrad'])
     parser.add_argument('--weight_decay', type=float, default=0.01,
-                        help='Weight decay (L2 regularization) factor for the optimizer')
+                    help='Weight decay (L2 regularization) factor for the optimizer')
+
     parser.add_argument('--sched', type=str, default='step',
                         choices=['step', 'exp', 'plateau', 'cosine', 'none'])
     parser.add_argument('--step_size', type=int, default=10)
@@ -41,9 +42,20 @@ def get_args():
     parser.add_argument('--wandb_project', type=str, default='ubiquitination-prediction',
                         help='WandB project name')
     parser.add_argument('--wandb_entity', type=str, required=True, help='WandB entity name')
-    parser.add_argument('--plots', nargs='+',
-                        choices=['distribution', 'confusion', 'roc', 'pr'],
-                        help='Select plots to display: distribution, confusion, roc, pr')
+    parser.add_argument(
+        '--plots', nargs='+',
+        choices=[
+            'distribution', 'curves',
+            'confusion', 'roc', 'pr',
+            'feature_distribution', 'feature_correlation',
+            'feature_scatter', 'boxplot', 'violinplot', 'groupwise_pca',
+            'overlays'
+        ],
+        help=('Select one or more plots to save/log: '
+              'distribution, curves, confusion, roc, pr, '
+              'feature_distribution, feature_correlation, feature_scatter, '
+              'boxplot, violinplot, groupwise_pca, overlays')
+    )
     parser.add_argument('--wandb', action='store_true',
                         help='Enable Weights & Biases logging')
     parser.add_argument('--wandb_api_key', type=str, default=None,
@@ -63,7 +75,23 @@ def get_args():
     parser.add_argument('--best_threshold', action='store_true',
     help='Find best threshold from validation set and use for test (ML models only)')
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility.")
+    # --- SVM grid search flags ---
+    parser.add_argument(
+        "--svm-grid", action="store_true",
+        help="Enable a small grid search on the validation set for SVM hyperparameters."
+    )
+    parser.add_argument(
+        "--svm-kernels", type=str, default="rbf,linear",
+        help="Comma-separated kernels to try (e.g., 'rbf,linear,poly')."
+    )
+    parser.add_argument(
+        "--svm-C", type=str, default="0.1,1,5,10",
+        help="Comma-separated C values to try."
+    )
+    parser.add_argument(
+        "--svm-gamma", type=str, default="scale,auto,0.001,0.0001",
+        help="Comma-separated gammas to try. For cuML SVC, only numeric values are used."
+    )
+
 
     return parser.parse_args()
-
-
