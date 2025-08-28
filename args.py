@@ -16,7 +16,7 @@ def get_args():
     parser.add_argument('--excel2', type=str, help='Path to second Excel file')
     parser.add_argument('--pssm1', type=str, help='Path to PSSM folder for plant 1')
     parser.add_argument('--pssm2', type=str, help='Path to PSSM folder for plant 2')
-    parser.add_argument('--features', nargs='+', default=['aac', 'dpc', 'tpc'],
+    parser.add_argument('--features', nargs='+', default=['binary'],
                         help='List of features to use')
     parser.add_argument('--window_size', type=int, default=21,
                         help='Sliding window size (odd number between 5 and 35)')
@@ -97,3 +97,4 @@ def get_args():
 
 
     return parser.parse_args()
+
