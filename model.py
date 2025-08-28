@@ -15,7 +15,8 @@ except Exception as e:
 from xgboost import XGBClassifier
 from catboost import CatBoostClassifier
 import esm
-from transformers import BertModel, BertTokenizer
+
+from transformers import AutoModel, AutoTokenizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 
@@ -93,8 +94,6 @@ class GRUClassifier(nn.Module):
     def forward(self, x):
         x = self.embedding(x)
         _, h_n = self.gru(x)
-        # h_n shape: (num_layers * num_directions, batch, hidden_size)
-        # Grab last forward and backward hidden states
         h = torch.cat((h_n[0], h_n[1]), dim=1)
         h = self.dropout(h)
         return self.fc(h).squeeze(1)
@@ -136,12 +135,20 @@ def get_pretrained_model(model_name, device='cpu', freeze=True):
     """
     if model_name == 'prot_bert':
         
-        tokenizer = BertTokenizer.from_pretrained("Rostlab/prot_bert", do_lower_case=False, model_max_length=512)
-        model = BertModel.from_pretrained("Rostlab/prot_bert")
+        tokenizer = AutoTokenizer.from_pretrained("Rostlab/prot_bert", do_lower_case=False, model_max_length=512)
+        encoder = AutoModel.from_pretrained("Rostlab/prot_bert")
         if freeze:
-            for param in model.parameters():
+            for param in encoder.parameters():
                 param.requires_grad = False
-        return model.to(device), tokenizer
+        return encoder.to(device), tokenizer
+    elif model_name == 'distil_prot_bert':
+
+        tokenizer = AutoTokenizer.from_pretrained("yarongef/DistilProtBert", do_lower_case=False, model_max_length=512)
+        encoder = AutoModel.from_pretrained("yarongef/DistilProtBert")
+        if freeze:
+            for param in encoder.parameters():
+                param.requires_grad = False
+        return encoder.to(device), tokenizer
     elif model_name == 'esm2_t6_8m':
         
         model, alphabet = esm.pretrained.esm2_t6_8M_UR50D()
@@ -164,7 +171,7 @@ class PretrainedClassifierHead(nn.Module):
         elif hasattr(encoder, 'embed_dim'):
             hidden_size = encoder.embed_dim          
         else:
-            hidden_size = 768  # fallback
+            hidden_size = 768  
 
         self.fc1 = nn.Linear(hidden_size, hidden_dim)
         self.relu = nn.ReLU()
@@ -184,7 +191,7 @@ class PretrainedClassifierHead(nn.Module):
         else:
             raise ValueError("Unsupported encoder type for PretrainedClassifierHead")
         x = self.relu(self.fc1(cls_embed))
-        x = self.dropout(x)  # <-- Added
+        x = self.dropout(x)  
         return self.fc2(x).squeeze(1)
 
 
@@ -202,10 +209,14 @@ def get_torch_model(name, input_dim_or_vocab=None, device='cpu', freeze=True, dr
         return GRUClassifier(vocab_size=input_dim_or_vocab, dropout=dropout)
     elif name == 'transformer':
         return TransformerClassifier(vocab_size=input_dim_or_vocab, dropout=dropout)
-    elif name in ['prot_bert', 'esm2_t6_8m']:
+    elif name in ['prot_bert', 'distil_prot_bert', 'esm2_t6_8m']:
+
         encoder, tokenizer_or_batch = get_pretrained_model(name, device=device, freeze=freeze)
-        # >>> Expanded section: add dropout to classifier head <<<
         classifier = PretrainedClassifierHead(encoder, dropout=dropout)
+
+        trainable = sum(p.numel() for p in classifier.parameters() if p.requires_grad)
+        total = sum(p.numel() for p in classifier.parameters())
+        print(f"[INFO] {name} trainable params: {trainable}/{total}")
         return classifier, tokenizer_or_batch
     else:
         raise ValueError(f"Unknown torch model: {name}")
@@ -337,3 +348,4 @@ def get_ml_model(name, y=None, random_state=42):
 
     else:
         raise ValueError(f"Unknown ML model: {name}")
+
