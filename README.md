@@ -211,7 +211,7 @@ Ubi/
 
 ---
 
-## 📣 Citation
+## Citation
 
 If you use this code in a publication, please cite this repository and any pre-trained models you employ (ProtBert/ESM2). Add your BibTeX here.
 
