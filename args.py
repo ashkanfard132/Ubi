@@ -1,4 +1,5 @@
 import argparse
+import os
 
 def get_args():
     parser = argparse.ArgumentParser(description="Ubiquitination Site Prediction")
@@ -41,7 +42,8 @@ def get_args():
     parser.add_argument('--gamma', type=float, default=0.1)
     parser.add_argument('--wandb_project', type=str, default='ubiquitination-prediction',
                         help='WandB project name')
-    parser.add_argument('--wandb_entity', type=str, required=True, help='WandB entity name')
+    parser.add_argument('--wandb_entity', type=str, default=os.getenv("WANDB_ENTITY"),
+                        help='W&B entity (username/team). Required only if --wandb is set.')
     parser.add_argument(
         '--plots', nargs='+',
         choices=[
